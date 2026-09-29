@@ -19,11 +19,25 @@ npm run dev
 | --- | --- | --- |
 | `/entrar` | Fotógrafa | Login (visual) |
 | `/painel` | Fotógrafa | Lista de galerias com status e progresso |
-| `/painel/galerias/nova` | Fotógrafa | Criar galeria (cliente, pacote, extras, prazo) |
-| `/painel/galerias/[id]` | Fotógrafa | Fotos, seleção do cliente, entrega, configurações, enviar link |
-| `/g/[id]` | Cliente | Código de acesso → seleção → confirmação → download das fotos finais |
+| `/painel/galerias/nova` | Fotógrafa | Criar galeria (cliente, pacote, extras, prazo, aparência, expiração) |
+| `/painel/galerias/[id]` | Fotógrafa | Fotos e pastas, clientes, seleção por cliente, entrega, configurações/arquivar |
+| `/painel/estudio` | Fotógrafa | Nome, logo e marca d'água (texto ou logo, posição, transparência) |
+| `/g/[id]` | Cliente | Código de acesso → seleção (com pastas) → confirmação → download, slideshow, compartilhar |
 
-Códigos das galerias de exemplo: Ana e Pedro `482913`, Júlia e Rafael `730155`, Família Souza `115820`.
+Códigos das galerias de exemplo:
+
+| Galeria | Situação | Código(s) |
+| --- | --- | --- |
+| Ana e Pedro | seleção em andamento | `482913` |
+| Formatura 3º ano B | 3 clientes, com pastas | Lucas `250311` (finalizou), Beatriz `250312`, Gabriel `250313` |
+| Júlia e Rafael | seleção recebida, com pastas | `730155` |
+| Família Souza | entregue | `115820` |
+| Helena | arquivada/expirada | `661204` (acesso bloqueado) |
+
+## Marca d'água
+
+Gravada nos pixels ([`src/lib/watermark.ts`](src/lib/watermark.ts)) — a tela de seleção nunca recebe a foto
+original. Hoje o desenho roda no navegador; com o Appwrite ele vai para o servidor, e o original deixa de sair de lá.
 
 ## Próximos passos
 

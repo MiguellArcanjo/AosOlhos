@@ -1,5 +1,6 @@
 "use client";
 
+import { useDialog } from "@/components/dialog";
 import { Gift, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { Dropzone } from "@/components/dropzone";
@@ -10,9 +11,11 @@ import { formatDate } from "@/lib/utils";
 export function DeliveryTab({ gallery, onShare }: { gallery: Gallery; onShare: () => void }) {
   const { addDeliveryPhotos, removeDeliveryPhoto, deliver } = useStore();
   const delivered = gallery.status === "entregue";
+  const [dialog, dialogElement] = useDialog();
 
   return (
     <div className="space-y-6">
+      {dialogElement}
       <div className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -30,8 +33,13 @@ export function DeliveryTab({ gallery, onShare }: { gallery: Gallery; onShare: (
           ) : (
             <Button
               disabled={gallery.deliveryPhotos.length === 0}
-              onClick={() => {
-                if (confirm(`Liberar ${gallery.deliveryPhotos.length} fotos para ${gallery.clientName} baixar?`)) {
+              onClick={async () => {
+                const ok = await dialog.confirm({
+                  title: `Liberar ${gallery.deliveryPhotos.length} fotos?`,
+                  message: `${gallery.clientName} poderá baixar as fotos finais.`,
+                  confirmLabel: "Liberar entrega",
+                });
+                if (ok) {
                   deliver(gallery.id);
                   onShare();
                 }

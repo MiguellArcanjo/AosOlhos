@@ -8,7 +8,7 @@ import type { GalleryStatus } from "@/lib/types";
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 const buttonStyles: Record<ButtonVariant, string> = {
-  primary: "bg-foreground text-white hover:bg-black",
+  primary: "bg-foreground text-background hover:opacity-85",
   secondary: "border border-line bg-surface text-foreground hover:bg-accent-soft",
   ghost: "text-foreground hover:bg-accent-soft",
   danger: "bg-danger text-white hover:opacity-90",
@@ -30,10 +30,10 @@ export function Button({
   return <button type="button" className={buttonClass(variant, className)} {...props} />;
 }
 
-export function Logo({ className }: { className?: string }) {
+export function Logo({ className, children = "Aos Olhos" }: { className?: string; children?: React.ReactNode }) {
   return (
     <span className={cn("font-serif text-2xl tracking-[0.2em] uppercase", className)}>
-      Aos Olhos
+      {children}
     </span>
   );
 }

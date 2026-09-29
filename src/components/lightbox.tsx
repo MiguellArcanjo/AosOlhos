@@ -11,6 +11,7 @@ export function Lightbox({
   onIndex,
   onClose,
   protect = false,
+  renderImage,
   actions,
   footer,
   onKey,
@@ -19,8 +20,10 @@ export function Lightbox({
   index: number;
   onIndex: (i: number) => void;
   onClose: () => void;
-  /** Marca d'água e bloqueio de clique direito (área do cliente). */
+  /** Bloqueia clique direito e arrastar (área do cliente). */
   protect?: boolean;
+  /** Troca a imagem padrão (ex.: versão com marca d'água). */
+  renderImage?: (photo: Photo, className: string) => React.ReactNode;
   actions?: (photo: Photo) => React.ReactNode;
   footer?: (photo: Photo) => React.ReactNode;
   /** Atalhos extras (ex.: espaço para selecionar). Retorne true se tratou a tecla. */
@@ -76,9 +79,13 @@ export function Lightbox({
           touchX.current = null;
         }}
       >
-        <div className={cn("relative max-h-full", protect && "watermark")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img key={photo.id} src={photo.src} alt={photo.name} className="max-h-[calc(100dvh-10rem)] max-w-full object-contain" />
+        <div className="relative max-h-full">
+          {renderImage ? (
+            renderImage(photo, "max-h-[calc(100dvh-10rem)] max-w-full object-contain")
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={photo.id} src={photo.src} alt={photo.name} className="max-h-[calc(100dvh-10rem)] max-w-full object-contain" />
+          )}
         </div>
         {photos.length > 1 && (
           <>

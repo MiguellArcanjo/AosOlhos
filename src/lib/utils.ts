@@ -1,4 +1,4 @@
-import type { Gallery, GalleryStatus, Photo } from "./types";
+import type { Gallery, GalleryClient, GalleryStatus, Photo } from "./types";
 
 export function cn(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
@@ -41,8 +41,32 @@ export function coverOf(g: Gallery) {
   return g.photos.find((p) => p.id === g.coverPhotoId) ?? g.photos[0];
 }
 
-export function extrasOf(g: Gallery) {
-  return Math.max(0, g.selection.photoIds.length - g.includedPhotos);
+export function extrasOf(g: Gallery, c: GalleryClient) {
+  return Math.max(0, c.selection.photoIds.length - g.includedPhotos);
+}
+
+export function isExpired(g: Gallery) {
+  return !!g.expiresAt && daysUntil(g.expiresAt) < 0;
+}
+
+/** Aviso curto para galerias que expiram em breve (ou já expiraram). */
+export function expiryLabel(g: Gallery) {
+  if (!g.expiresAt) return null;
+  const days = daysUntil(g.expiresAt);
+  if (days < 0) return "Expirada";
+  if (days === 0) return "Expira hoje";
+  if (days <= 15) return `Expira em ${days} dia${days === 1 ? "" : "s"}`;
+  return null;
+}
+
+export function finalizedCount(g: Gallery) {
+  return g.clients.filter((c) => c.finalizedAt).length;
+}
+
+export function photosInFolder(photos: Photo[], folderId: string | null) {
+  if (folderId === null) return photos;
+  if (folderId === "") return photos.filter((p) => !p.folderId);
+  return photos.filter((p) => p.folderId === folderId);
 }
 
 export function galleryLink(g: Gallery) {

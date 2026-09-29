@@ -4,21 +4,35 @@ import { useState } from "react";
 import { Check, Copy, Mail, MessageCircle } from "lucide-react";
 import { Modal, buttonClass, inputClass } from "@/components/ui";
 import { useStore } from "@/lib/store";
-import type { Gallery } from "@/lib/types";
+import type { Gallery, GalleryClient } from "@/lib/types";
 import { cn, formatDate, galleryLink } from "@/lib/utils";
 
-function shareText(g: Gallery) {
+function shareText(g: Gallery, c: GalleryClient, studioName: string) {
   const link = galleryLink(g);
   if (g.status === "entregue") {
-    return `Oi, ${g.clientName}! Suas fotos estão prontas 💛\n\nÉ só acessar ${link} com o código ${g.accessCode} para baixar.\n\nCom carinho, Aos Olhos`;
+    return `Oi, ${c.name}! Suas fotos estão prontas 💛\n\nÉ só acessar ${link} com o código ${c.accessCode} para baixar.\n\nCom carinho, ${studioName}`;
   }
-  return `Oi, ${g.clientName}! Suas fotos já estão disponíveis para seleção 📸\n\nAcesse ${link} e use o código ${g.accessCode}.\nVocê pode escolher ${g.includedPhotos} fotos até ${formatDate(g.deadline)}.\n\nCom carinho, Aos Olhos`;
+  return `Oi, ${c.name}! Suas fotos já estão disponíveis para seleção 📸\n\nAcesse ${link} e use o código ${c.accessCode}.\nVocê pode escolher ${g.includedPhotos} fotos até ${formatDate(g.deadline)}.\n\nCom carinho, ${studioName}`;
 }
 
-export function ShareModal({ gallery, open, onClose }: { gallery: Gallery; open: boolean; onClose: () => void }) {
-  const { sendToClient } = useStore();
+export function ShareModal({
+  gallery,
+  clientId,
+  open,
+  onClose,
+}: {
+  gallery: Gallery;
+  clientId?: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { sendToClient, studio } = useStore();
   const [copied, setCopied] = useState<string | null>(null);
-  const text = shareText(gallery);
+  const [chosen, setChosen] = useState<string | undefined>(undefined);
+  const client = gallery.clients.find((c) => c.id === (chosen ?? clientId)) ?? gallery.clients[0];
+  if (!client) return null;
+
+  const text = shareText(gallery, client, studio.name);
   const link = galleryLink(gallery);
 
   // Enquanto o envio de e-mail não existe, compartilhar = marcar como enviada.
@@ -34,8 +48,25 @@ export function ShareModal({ gallery, open, onClose }: { gallery: Gallery; open:
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={gallery.status === "entregue" ? "Enviar fotos finais" : "Enviar para seleção"}>
+    <Modal
+      open={open}
+      onClose={() => {
+        setChosen(undefined);
+        onClose();
+      }}
+      title={gallery.status === "entregue" ? "Enviar fotos finais" : "Enviar para seleção"}
+    >
       <div className="space-y-5">
+        {gallery.clients.length > 1 && (
+          <select className={inputClass} value={client.id} onChange={(e) => setChosen(e.target.value)} aria-label="Cliente">
+            {gallery.clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
+
         <div className="grid grid-cols-[1fr_auto] gap-2">
           <input readOnly value={link} className={cn(inputClass, "text-muted")} onFocus={(e) => e.target.select()} />
           <button type="button" className={buttonClass("secondary", "px-3")} onClick={() => copy(link, "link")} title="Copiar link">
@@ -44,8 +75,8 @@ export function ShareModal({ gallery, open, onClose }: { gallery: Gallery; open:
         </div>
 
         <div className="flex items-center justify-between rounded-xl bg-accent-soft px-4 py-3">
-          <span className="text-sm text-muted">Código de acesso</span>
-          <span className="font-mono text-xl tracking-[0.3em]">{gallery.accessCode}</span>
+          <span className="text-sm text-muted">Código de {client.name.split(" ")[0]}</span>
+          <span className="font-mono text-xl tracking-[0.3em]">{client.accessCode}</span>
         </div>
 
         <div>
@@ -67,7 +98,7 @@ export function ShareModal({ gallery, open, onClose }: { gallery: Gallery; open:
             <MessageCircle size={16} /> WhatsApp
           </a>
           <a
-            href={`mailto:${gallery.clientEmail}?subject=${encodeURIComponent("Suas fotos · Aos Olhos")}&body=${encodeURIComponent(text)}`}
+            href={`mailto:${client.email}?subject=${encodeURIComponent(`Suas fotos · ${studio.name}`)}&body=${encodeURIComponent(text)}`}
             onClick={markSent}
             className={buttonClass("secondary")}
           >

@@ -2,26 +2,30 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CalendarDays, Images, Search } from "lucide-react";
+import { Archive, CalendarDays, Images, Search, Users } from "lucide-react";
 import { Spinner, StatusBadge, inputClass } from "@/components/ui";
 import { useStore } from "@/lib/store";
 import type { GalleryStatus } from "@/lib/types";
-import { cn, coverOf, daysUntil, formatDate, statusInfo } from "@/lib/utils";
+import { cn, coverOf, daysUntil, expiryLabel, finalizedCount, formatDate, statusInfo } from "@/lib/utils";
 
-const filters: (GalleryStatus | "todas")[] = ["todas", "rascunho", "selecao", "finalizada", "entregue"];
+type Filter = GalleryStatus | "todas" | "arquivadas";
+
+const filters: Filter[] = ["todas", "rascunho", "selecao", "finalizada", "entregue", "arquivadas"];
 
 export default function PainelPage() {
   const { ready, galleries } = useStore();
-  const [filter, setFilter] = useState<GalleryStatus | "todas">("todas");
+  const [filter, setFilter] = useState<Filter>("todas");
   const [query, setQuery] = useState("");
 
   if (!ready) return <Spinner />;
 
-  const count = (s: GalleryStatus) => galleries.filter((g) => g.status === s).length;
+  // Arquivadas só aparecem no filtro próprio.
+  const active = galleries.filter((g) => !g.archived);
+  const count = (s: GalleryStatus) => active.filter((g) => g.status === s).length;
   const q = query.trim().toLowerCase();
   const visible = galleries.filter(
     (g) =>
-      (filter === "todas" || g.status === filter) &&
+      (filter === "arquivadas" ? g.archived : !g.archived && (filter === "todas" || g.status === filter)) &&
       (!q || `${g.title} ${g.clientName}`.toLowerCase().includes(q)),
   );
 
@@ -68,7 +72,13 @@ export default function PainelPage() {
                 filter === f ? "bg-foreground text-white" : "text-muted hover:bg-accent-soft",
               )}
             >
-              {f === "todas" ? "Todas" : statusInfo[f].label}
+              {f === "todas" ? "Todas" : f === "arquivadas" ? (
+                <span className="flex items-center gap-1">
+                  <Archive size={13} /> Arquivadas
+                </span>
+              ) : (
+                statusInfo[f].label
+              )}
             </button>
           ))}
         </div>
@@ -94,7 +104,11 @@ export default function PainelPage() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((g) => {
             const cover = coverOf(g);
-            const selected = g.selection.photoIds.length;
+            const multi = g.clients.length > 1;
+            // Com vários clientes, o progresso é quantos já finalizaram.
+            const done = multi ? finalizedCount(g) : g.clients[0]?.selection.photoIds.length ?? 0;
+            const total = multi ? g.clients.length : g.includedPhotos;
+            const expiry = expiryLabel(g);
             const late = g.status === "selecao" && daysUntil(g.deadline) < 0;
             return (
               <Link
@@ -111,8 +125,9 @@ export default function PainelPage() {
                       <Images size={32} />
                     </div>
                   )}
-                  <div className="absolute left-3 top-3">
+                  <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
                     <StatusBadge status={g.status} />
+                    {expiry && <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs text-danger">{expiry}</span>}
                   </div>
                 </div>
                 <div className="space-y-3 p-4">
@@ -124,14 +139,14 @@ export default function PainelPage() {
                     <div>
                       <div className="mb-1 flex justify-between text-xs text-muted">
                         <span>
-                          {selected} de {g.includedPhotos} escolhidas
+                          {multi ? `${done} de ${total} clientes finalizaram` : `${done} de ${total} escolhidas`}
                         </span>
                         <span className={late ? "text-danger" : ""}>até {formatDate(g.deadline)}</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-accent-soft">
                         <div
                           className="h-full rounded-full bg-accent"
-                          style={{ width: `${Math.min(100, (selected / g.includedPhotos) * 100)}%` }}
+                          style={{ width: `${Math.min(100, (done / total) * 100)}%` }}
                         />
                       </div>
                     </div>
@@ -143,6 +158,11 @@ export default function PainelPage() {
                     <span className="flex items-center gap-1">
                       <CalendarDays size={14} /> {formatDate(g.eventDate)}
                     </span>
+                    {multi && (
+                      <span className="flex items-center gap-1">
+                        <Users size={14} /> {g.clients.length} clientes
+                      </span>
+                    )}
                   </div>
                 </div>
               </Link>

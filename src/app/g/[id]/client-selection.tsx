@@ -2,43 +2,52 @@
 
 import { useState } from "react";
 import { Heart, MessageSquare, Star } from "lucide-react";
-import { Button, Logo, Modal, inputClass } from "@/components/ui";
+import { Button, Modal, inputClass } from "@/components/ui";
 import { Lightbox } from "@/components/lightbox";
 import { JustifiedGrid } from "@/components/justified-grid";
+import { ProtectedImage } from "@/components/protected-image";
+import { StudioLogo } from "@/components/studio-logo";
 import { useStore } from "@/lib/store";
-import type { Gallery, Photo } from "@/lib/types";
-import { cn, deadlineLabel, daysUntil, extrasOf, formatMoney } from "@/lib/utils";
+import type { Gallery, GalleryClient, Photo } from "@/lib/types";
+import { cn, deadlineLabel, daysUntil, extrasOf, formatMoney, photosInFolder } from "@/lib/utils";
 
 type Filter = "todas" | "selecionadas" | "favoritas";
 
-export function ClientSelection({ gallery }: { gallery: Gallery }) {
+export function ClientSelection({ gallery, client }: { gallery: Gallery; client: GalleryClient }) {
   const { toggleSelected, setComment, finalizeSelection } = useStore();
   const [filter, setFilter] = useState<Filter>("todas");
+  const [folder, setFolder] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [welcome, setWelcome] = useState(!!gallery.message);
 
-  const selectedIds = gallery.selection.photoIds;
+  const selectedIds = client.selection.photoIds;
+  const comments = client.selection.comments;
   const count = selectedIds.length;
-  const extras = extrasOf(gallery);
+  const extras = extrasOf(gallery, client);
   const full = !gallery.allowExtras && count >= gallery.includedPhotos;
   const isSelected = (p: Photo) => selectedIds.includes(p.id);
   const isFavorite = (p: Photo) => gallery.favoriteIds.includes(p.id);
 
-  const visible = gallery.photos.filter((p) =>
+  // Pastas sem fotos não aparecem para o cliente.
+  const folders = gallery.folders.filter((f) => gallery.photos.some((p) => p.folderId === f.id));
+  const inFolder = photosInFolder(gallery.photos, folder);
+  const visible = inFolder.filter((p) =>
     filter === "selecionadas" ? isSelected(p) : filter === "favoritas" ? isFavorite(p) : true,
   );
 
-  const toggle = (p: Photo) => toggleSelected(gallery.id, p.id);
+  const toggle = (p: Photo) => toggleSelected(gallery.id, client.id, p.id);
   const late = daysUntil(gallery.deadline) < 0;
+  const firstName = client.name.split(" ")[0];
 
   return (
     <div className="protected flex flex-1 flex-col" onContextMenu={(e) => e.preventDefault()}>
       <header className="sticky top-0 z-30 border-b border-line bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
           <div className="min-w-0">
-            <Logo className="text-sm text-muted" />
+            <StudioLogo className="text-sm text-muted" imageClassName="h-6" />
             <p className="truncate font-serif text-2xl leading-tight">{gallery.clientName}</p>
+            {gallery.clients.length > 1 && <p className="text-xs text-muted">Seleção de {client.name}</p>}
           </div>
 
           <div className="order-last flex w-full items-center gap-4 sm:order-none sm:w-auto sm:flex-1 sm:justify-center">
@@ -63,13 +72,26 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
           </Button>
         </div>
 
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 pb-2 sm:px-6">
+        {folders.length > 0 && (
+          <div className="mx-auto flex max-w-7xl gap-5 overflow-x-auto px-4 sm:px-6">
+            <FolderTab active={folder === null} onClick={() => setFolder(null)}>
+              Todas
+            </FolderTab>
+            {folders.map((f) => (
+              <FolderTab key={f.id} active={folder === f.id} onClick={() => setFolder(f.id)}>
+                {f.name}
+              </FolderTab>
+            ))}
+          </div>
+        )}
+
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
           <div className="flex gap-1 overflow-x-auto">
             <FilterButton active={filter === "todas"} onClick={() => setFilter("todas")}>
-              Todas ({gallery.photos.length})
+              Todas ({inFolder.length})
             </FilterButton>
             <FilterButton active={filter === "selecionadas"} onClick={() => setFilter("selecionadas")}>
-              Escolhidas ({count})
+              Escolhidas ({inFolder.filter(isSelected).length})
             </FilterButton>
             {gallery.favoriteIds.length > 0 && (
               <FilterButton active={filter === "favoritas"} onClick={() => setFilter("favoritas")}>
@@ -107,8 +129,7 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
                       sel && "ring-4 ring-accent ring-offset-2 ring-offset-background",
                     )}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.src} alt={p.name} loading="lazy" className="h-full w-full object-cover" />
+                    <ProtectedImage photo={p} enabled={gallery.watermark} loading="lazy" className="h-full w-full object-cover" />
                   </button>
                   <button
                     type="button"
@@ -117,7 +138,7 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
                     aria-label={sel ? "Desmarcar" : "Escolher"}
                     className={cn(
                       "absolute bottom-2 right-2 rounded-full p-2.5 shadow-lg transition active:scale-90 disabled:opacity-50",
-                      sel ? "bg-accent text-white" : "bg-white/90 text-foreground hover:bg-white",
+                      sel ? "bg-accent text-white" : "bg-white/90 text-[#2b2724] hover:bg-white",
                     )}
                   >
                     <Heart size={18} className={sel ? "fill-current" : ""} />
@@ -128,9 +149,9 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
                         <Star size={13} className="fill-amber-400 text-amber-400" />
                       </span>
                     )}
-                    {gallery.selection.comments[p.id] && (
+                    {comments[p.id] && (
                       <span className="rounded-full bg-white/90 p-1.5 shadow" title="Você comentou">
-                        <MessageSquare size={13} className="text-accent-strong" />
+                        <MessageSquare size={13} className="text-[#7d6045]" />
                       </span>
                     )}
                   </div>
@@ -151,6 +172,7 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
           index={open}
           onIndex={setOpen}
           onClose={() => setOpen(null)}
+          renderImage={(p, className) => <ProtectedImage key={p.id} photo={p} enabled={gallery.watermark} className={className} />}
           onKey={(e, p) => {
             if (e.key !== " ") return false;
             toggle(p);
@@ -174,16 +196,12 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
             );
           }}
           footer={(p) => (
-            <CommentBox
-              key={p.id}
-              value={gallery.selection.comments[p.id] ?? ""}
-              onSave={(text) => setComment(gallery.id, p.id, text)}
-            />
+            <CommentBox key={p.id} value={comments[p.id] ?? ""} onSave={(text) => setComment(gallery.id, client.id, p.id, text)} />
           )}
         />
       )}
 
-      <Modal open={welcome} onClose={() => setWelcome(false)} title="Bem-vindos!">
+      <Modal open={welcome} onClose={() => setWelcome(false)} title={`Bem-vindo(a), ${firstName}!`}>
         <p className="whitespace-pre-line text-muted">{gallery.message}</p>
         <ul className="mt-4 space-y-1 text-sm">
           <li>❤️ Toque no coração para escolher uma foto</li>
@@ -191,6 +209,7 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
             📷 Seu pacote inclui <strong>{gallery.includedPhotos} fotos</strong>
             {gallery.allowExtras && gallery.extraPrice > 0 && <> · extras por {formatMoney(gallery.extraPrice)} cada</>}
           </li>
+          {folders.length > 0 && <li>📁 As fotos estão separadas por momento, nas abas lá em cima</li>}
           <li>💬 Abra a foto para deixar um comentário</li>
           <li>✅ Quando terminar, clique em “Finalizar seleção”</li>
         </ul>
@@ -221,12 +240,27 @@ export function ClientSelection({ gallery }: { gallery: Gallery }) {
           <Button variant="secondary" className="flex-1" onClick={() => setConfirming(false)}>
             Voltar
           </Button>
-          <Button className="flex-1" onClick={() => finalizeSelection(gallery.id)}>
+          <Button className="flex-1" onClick={() => finalizeSelection(gallery.id, client.id)}>
             Confirmar
           </Button>
         </div>
       </Modal>
     </div>
+  );
+}
+
+function FolderTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "-mb-px whitespace-nowrap border-b-2 py-2 font-serif text-lg transition",
+        active ? "border-foreground" : "border-transparent text-muted hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -237,7 +271,7 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
       onClick={onClick}
       className={cn(
         "whitespace-nowrap rounded-full px-3 py-1 text-sm transition",
-        active ? "bg-foreground text-white" : "text-muted hover:bg-accent-soft",
+        active ? "bg-foreground text-background" : "text-muted hover:bg-accent-soft",
       )}
     >
       {children}

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { Button, Field, inputClass } from "@/components/ui";
-import type { NewGallery } from "@/lib/types";
+import { coverLabels, defaultDesign, fontLabels, themes } from "@/lib/design";
+import type { ColorTheme, CoverLayout, FontStyle, GalleryFields, NewGallery } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 function inDays(days: number) {
   const d = new Date();
@@ -19,21 +21,26 @@ export const emptyGallery = (): NewGallery => ({
   allowExtras: true,
   extraPrice: 25,
   deadline: inDays(15),
+  expiresAt: inDays(90),
   message: "",
+  design: defaultDesign(),
+  watermark: true,
+  allowShare: true,
 });
 
-export function GalleryForm({
+export function GalleryForm<T extends GalleryFields & { clientEmail?: string }>({
   initial,
   submitLabel,
   onSubmit,
 }: {
-  initial: NewGallery;
+  initial: T;
   submitLabel: string;
-  onSubmit: (data: NewGallery) => void;
+  onSubmit: (data: T) => void;
 }) {
   const [data, setData] = useState(initial);
-  const change = <K extends keyof NewGallery>(key: K, value: NewGallery[K]) =>
-    setData((d) => ({ ...d, [key]: value }));
+  const creating = initial.clientEmail !== undefined;
+  const change = <K extends keyof T>(key: K, value: T[K]) => setData((d) => ({ ...d, [key]: value }));
+  const changeDesign = (patch: Partial<GalleryFields["design"]>) => setData((d) => ({ ...d, design: { ...d.design, ...patch } }));
 
   return (
     <form
@@ -64,7 +71,7 @@ export function GalleryForm({
       <section className="space-y-4">
         <h2 className="font-serif text-2xl">Cliente</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nome">
+          <Field label={creating ? "Nome" : "Nome na capa"} hint={creating ? undefined : "Os clientes com acesso ficam na aba Clientes."}>
             <input
               required
               className={inputClass}
@@ -73,15 +80,17 @@ export function GalleryForm({
               onChange={(e) => change("clientName", e.target.value)}
             />
           </Field>
-          <Field label="E-mail" hint="Usado para enviar o link e os lembretes (em breve).">
-            <input
-              type="email"
-              className={inputClass}
-              placeholder="cliente@exemplo.com"
-              value={data.clientEmail}
-              onChange={(e) => change("clientEmail", e.target.value)}
-            />
-          </Field>
+          {creating && (
+            <Field label="E-mail" hint="Dá para adicionar mais clientes depois (ex.: formatura).">
+              <input
+                type="email"
+                className={inputClass}
+                placeholder="cliente@exemplo.com"
+                value={data.clientEmail}
+                onChange={(e) => change("clientEmail", e.target.value as T["clientEmail"])}
+              />
+            </Field>
+          )}
         </div>
         <Field label="Mensagem de boas-vindas" hint="Aparece para o cliente ao abrir a galeria.">
           <textarea
@@ -97,7 +106,7 @@ export function GalleryForm({
       <section className="space-y-4">
         <h2 className="font-serif text-2xl">Seleção</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Fotos inclusas no pacote">
+          <Field label="Fotos inclusas no pacote" hint="Por cliente.">
             <input
               type="number"
               min={1}
@@ -111,15 +120,9 @@ export function GalleryForm({
             <input type="date" className={inputClass} value={data.deadline} onChange={(e) => change("deadline", e.target.value)} />
           </Field>
         </div>
-        <label className="flex items-center gap-3 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-[var(--accent)]"
-            checked={data.allowExtras}
-            onChange={(e) => change("allowExtras", e.target.checked)}
-          />
+        <Toggle checked={data.allowExtras} onChange={(v) => change("allowExtras", v)}>
           Permitir que o cliente escolha fotos extras
-        </label>
+        </Toggle>
         {data.allowExtras && (
           <div className="sm:w-1/2">
             <Field label="Valor por foto extra (R$)">
@@ -136,9 +139,87 @@ export function GalleryForm({
         )}
       </section>
 
+      <section className="space-y-4">
+        <h2 className="font-serif text-2xl">Aparência</h2>
+        <div>
+          <p className="mb-2 text-sm font-medium">Cores</p>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(themes) as ColorTheme[]).map((t) => {
+              const p = themes[t].palette;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => changeDesign({ theme: t })}
+                  className={cn(
+                    "flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition",
+                    data.design.theme === t ? "border-foreground ring-2 ring-accent/20" : "border-line",
+                  )}
+                >
+                  <span className="flex h-6 w-6 overflow-hidden rounded-full border border-line">
+                    <span className="w-1/2" style={{ background: p.background }} />
+                    <span className="w-1/2" style={{ background: p.accent }} />
+                  </span>
+                  {themes[t].label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Fonte dos títulos">
+            <select className={inputClass} value={data.design.font} onChange={(e) => changeDesign({ font: e.target.value as FontStyle })}>
+              {(Object.keys(fontLabels) as FontStyle[]).map((f) => (
+                <option key={f} value={f}>
+                  {fontLabels[f]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Capa">
+            <select className={inputClass} value={data.design.cover} onChange={(e) => changeDesign({ cover: e.target.value as CoverLayout })}>
+              {(Object.keys(coverLabels) as CoverLayout[]).map((c) => (
+                <option key={c} value={c}>
+                  {coverLabels[c]}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="font-serif text-2xl">Proteção e acesso</h2>
+        <Toggle checked={data.watermark} onChange={(v) => change("watermark", v)}>
+          Gravar marca d&apos;água nas fotos de seleção
+        </Toggle>
+        <Toggle checked={data.allowShare} onChange={(v) => change("allowShare", v)}>
+          Permitir que o cliente compartilhe as fotos entregues (WhatsApp, Instagram…)
+        </Toggle>
+        <div className="sm:w-1/2">
+          <Field label="Galeria disponível até" hint="Depois disso o cliente não acessa mais. Deixe vazio para não expirar.">
+            <input
+              type="date"
+              className={inputClass}
+              value={data.expiresAt ?? ""}
+              onChange={(e) => change("expiresAt", e.target.value || undefined)}
+            />
+          </Field>
+        </div>
+      </section>
+
       <div className="flex justify-end">
         <Button type="submit">{submitLabel}</Button>
       </div>
     </form>
+  );
+}
+
+function Toggle({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: React.ReactNode }) {
+  return (
+    <label className="flex items-center gap-3 text-sm">
+      <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {children}
+    </label>
   );
 }
