@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Aos Olhos
 
-## Getting Started
+Sistema de seleção e entrega de fotos (inspirado no Selpics). Next.js 16, hospedagem na Vercel.
 
-First, run the development server:
+## Fase atual: só visual
+
+Os dados ficam no navegador (IndexedDB) em [`src/lib/store.tsx`](src/lib/store.tsx), com galerias de exemplo
+(fotos do picsum.photos, nunca fotos reais de clientes). O botão ↺ no painel restaura os dados de exemplo.
+Depois, a mesma camada passa a usar o Appwrite.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Telas
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Rota | Quem usa | O que faz |
+| --- | --- | --- |
+| `/entrar` | Fotógrafa | Login (visual) |
+| `/painel` | Fotógrafa | Lista de galerias com status e progresso |
+| `/painel/galerias/nova` | Fotógrafa | Criar galeria (cliente, pacote, extras, prazo) |
+| `/painel/galerias/[id]` | Fotógrafa | Fotos, seleção do cliente, entrega, configurações, enviar link |
+| `/g/[id]` | Cliente | Código de acesso → seleção → confirmação → download das fotos finais |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Códigos das galerias de exemplo: Ana e Pedro `482913`, Júlia e Rafael `730155`, Família Souza `115820`.
 
-## Learn More
+## Próximos passos
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Appwrite: login, banco, bucket das fotos, acesso do cliente pelo servidor
+- Envio automático de e-mail (link, lembretes de prazo, aviso de seleção finalizada)
+- Backup diário para o Azure

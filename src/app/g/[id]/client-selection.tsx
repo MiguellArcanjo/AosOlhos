@@ -1,0 +1,265 @@
+"use client";
+
+import { useState } from "react";
+import { Heart, MessageSquare, Star } from "lucide-react";
+import { Button, Logo, Modal, inputClass } from "@/components/ui";
+import { Lightbox } from "@/components/lightbox";
+import { JustifiedGrid } from "@/components/justified-grid";
+import { useStore } from "@/lib/store";
+import type { Gallery, Photo } from "@/lib/types";
+import { cn, deadlineLabel, daysUntil, extrasOf, formatMoney } from "@/lib/utils";
+
+type Filter = "todas" | "selecionadas" | "favoritas";
+
+export function ClientSelection({ gallery }: { gallery: Gallery }) {
+  const { toggleSelected, setComment, finalizeSelection } = useStore();
+  const [filter, setFilter] = useState<Filter>("todas");
+  const [open, setOpen] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [welcome, setWelcome] = useState(!!gallery.message);
+
+  const selectedIds = gallery.selection.photoIds;
+  const count = selectedIds.length;
+  const extras = extrasOf(gallery);
+  const full = !gallery.allowExtras && count >= gallery.includedPhotos;
+  const isSelected = (p: Photo) => selectedIds.includes(p.id);
+  const isFavorite = (p: Photo) => gallery.favoriteIds.includes(p.id);
+
+  const visible = gallery.photos.filter((p) =>
+    filter === "selecionadas" ? isSelected(p) : filter === "favoritas" ? isFavorite(p) : true,
+  );
+
+  const toggle = (p: Photo) => toggleSelected(gallery.id, p.id);
+  const late = daysUntil(gallery.deadline) < 0;
+
+  return (
+    <div className="protected flex flex-1 flex-col" onContextMenu={(e) => e.preventDefault()}>
+      <header className="sticky top-0 z-30 border-b border-line bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
+          <div className="min-w-0">
+            <Logo className="text-sm text-muted" />
+            <p className="truncate font-serif text-2xl leading-tight">{gallery.clientName}</p>
+          </div>
+
+          <div className="order-last flex w-full items-center gap-4 sm:order-none sm:w-auto sm:flex-1 sm:justify-center">
+            <div className="flex-1 sm:max-w-xs">
+              <div className="mb-1 flex justify-between text-xs">
+                <span>
+                  <strong className="text-sm">{count}</strong> de {gallery.includedPhotos} fotos
+                </span>
+                {extras > 0 && <span className="text-accent-strong">+{extras} extra{extras > 1 ? "s" : ""}</span>}
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-accent-soft">
+                <div
+                  className="h-full rounded-full bg-accent transition-all"
+                  style={{ width: `${Math.min(100, (count / gallery.includedPhotos) * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <Button onClick={() => setConfirming(true)} disabled={count === 0}>
+            Finalizar seleção
+          </Button>
+        </div>
+
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 pb-2 sm:px-6">
+          <div className="flex gap-1 overflow-x-auto">
+            <FilterButton active={filter === "todas"} onClick={() => setFilter("todas")}>
+              Todas ({gallery.photos.length})
+            </FilterButton>
+            <FilterButton active={filter === "selecionadas"} onClick={() => setFilter("selecionadas")}>
+              Escolhidas ({count})
+            </FilterButton>
+            {gallery.favoriteIds.length > 0 && (
+              <FilterButton active={filter === "favoritas"} onClick={() => setFilter("favoritas")}>
+                Favoritas da fotógrafa
+              </FilterButton>
+            )}
+          </div>
+          <span className={cn("hidden whitespace-nowrap text-xs sm:block", late ? "text-danger" : "text-muted")}>
+            {deadlineLabel(gallery.deadline)}
+          </span>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-7xl flex-1 px-2 py-4 sm:px-6">
+        {full && (
+          <p className="mb-4 rounded-xl bg-accent-soft px-4 py-3 text-center text-sm">
+            Você chegou ao limite de {gallery.includedPhotos} fotos. Para trocar, desmarque alguma.
+          </p>
+        )}
+        {visible.length === 0 ? (
+          <p className="py-24 text-center text-muted">
+            {filter === "selecionadas" ? "Toque no coração das fotos que você mais gostar." : "Nenhuma foto aqui."}
+          </p>
+        ) : (
+          <JustifiedGrid photos={visible}>
+            {(p, i) => {
+              const sel = isSelected(p);
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(i)}
+                    className={cn(
+                      "block h-full w-full overflow-hidden rounded-lg bg-accent-soft transition",
+                      sel && "ring-4 ring-accent ring-offset-2 ring-offset-background",
+                    )}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.src} alt={p.name} loading="lazy" className="h-full w-full object-cover" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggle(p)}
+                    disabled={!sel && full}
+                    aria-label={sel ? "Desmarcar" : "Escolher"}
+                    className={cn(
+                      "absolute bottom-2 right-2 rounded-full p-2.5 shadow-lg transition active:scale-90 disabled:opacity-50",
+                      sel ? "bg-accent text-white" : "bg-white/90 text-foreground hover:bg-white",
+                    )}
+                  >
+                    <Heart size={18} className={sel ? "fill-current" : ""} />
+                  </button>
+                  <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                    {isFavorite(p) && (
+                      <span className="rounded-full bg-white/90 p-1.5 shadow" title="Favorita da fotógrafa">
+                        <Star size={13} className="fill-amber-400 text-amber-400" />
+                      </span>
+                    )}
+                    {gallery.selection.comments[p.id] && (
+                      <span className="rounded-full bg-white/90 p-1.5 shadow" title="Você comentou">
+                        <MessageSquare size={13} className="text-accent-strong" />
+                      </span>
+                    )}
+                  </div>
+                  <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white">
+                    {p.name}
+                  </span>
+                </>
+              );
+            }}
+          </JustifiedGrid>
+        )}
+      </main>
+
+      {open !== null && (
+        <Lightbox
+          protect
+          photos={visible}
+          index={open}
+          onIndex={setOpen}
+          onClose={() => setOpen(null)}
+          onKey={(e, p) => {
+            if (e.key !== " ") return false;
+            toggle(p);
+            return true;
+          }}
+          actions={(p) => {
+            const sel = isSelected(p);
+            return (
+              <button
+                type="button"
+                onClick={() => toggle(p)}
+                disabled={!sel && full}
+                className={cn(
+                  "flex items-center gap-2 rounded-full px-4 py-2 text-sm transition disabled:opacity-40",
+                  sel ? "bg-accent text-white" : "bg-white/10 hover:bg-white/20",
+                )}
+              >
+                <Heart size={16} className={sel ? "fill-current" : ""} />
+                {sel ? "Escolhida" : "Escolher"}
+              </button>
+            );
+          }}
+          footer={(p) => (
+            <CommentBox
+              key={p.id}
+              value={gallery.selection.comments[p.id] ?? ""}
+              onSave={(text) => setComment(gallery.id, p.id, text)}
+            />
+          )}
+        />
+      )}
+
+      <Modal open={welcome} onClose={() => setWelcome(false)} title="Bem-vindos!">
+        <p className="whitespace-pre-line text-muted">{gallery.message}</p>
+        <ul className="mt-4 space-y-1 text-sm">
+          <li>❤️ Toque no coração para escolher uma foto</li>
+          <li>
+            📷 Seu pacote inclui <strong>{gallery.includedPhotos} fotos</strong>
+            {gallery.allowExtras && gallery.extraPrice > 0 && <> · extras por {formatMoney(gallery.extraPrice)} cada</>}
+          </li>
+          <li>💬 Abra a foto para deixar um comentário</li>
+          <li>✅ Quando terminar, clique em “Finalizar seleção”</li>
+        </ul>
+        <Button className="mt-6 w-full" onClick={() => setWelcome(false)}>
+          Começar
+        </Button>
+      </Modal>
+
+      <Modal open={confirming} onClose={() => setConfirming(false)} title="Finalizar seleção?">
+        <div className="space-y-3 text-sm">
+          <p>
+            Você escolheu <strong>{count} fotos</strong>.
+          </p>
+          {count < gallery.includedPhotos && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-amber-900">
+              Seu pacote inclui {gallery.includedPhotos} — ainda dá para escolher mais {gallery.includedPhotos - count}.
+            </p>
+          )}
+          {extras > 0 && (
+            <p className="rounded-xl bg-accent-soft px-3 py-2">
+              {extras} foto{extras > 1 ? "s" : ""} extra{extras > 1 ? "s" : ""} ·{" "}
+              <strong>{formatMoney(extras * gallery.extraPrice)}</strong>
+            </p>
+          )}
+          <p className="text-muted">Depois de finalizar, a seleção vai para a fotógrafa e não poderá ser alterada.</p>
+        </div>
+        <div className="mt-6 flex gap-2">
+          <Button variant="secondary" className="flex-1" onClick={() => setConfirming(false)}>
+            Voltar
+          </Button>
+          <Button className="flex-1" onClick={() => finalizeSelection(gallery.id)}>
+            Confirmar
+          </Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "whitespace-nowrap rounded-full px-3 py-1 text-sm transition",
+        active ? "bg-foreground text-white" : "text-muted hover:bg-accent-soft",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CommentBox({ value, onSave }: { value: string; onSave: (text: string) => void }) {
+  const [text, setText] = useState(value);
+  const dirty = text !== value;
+  return (
+    <div className="mx-auto flex max-w-2xl gap-2">
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && dirty && onSave(text)}
+        placeholder="Deixe um comentário sobre esta foto (opcional)"
+        className={cn(inputClass, "border-white/20 bg-white/10 text-white placeholder:text-white/50")}
+      />
+      <Button variant="secondary" disabled={!dirty} onClick={() => onSave(text)} className="shrink-0">
+        Salvar
+      </Button>
+    </div>
+  );
+}
