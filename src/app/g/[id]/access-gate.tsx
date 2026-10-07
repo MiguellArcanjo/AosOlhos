@@ -6,21 +6,23 @@ import { StudioLogo } from "@/components/studio-logo";
 import type { Gallery } from "@/lib/types";
 import { cn, coverOf, formatDate } from "@/lib/utils";
 
-export function AccessGate({ gallery, onUnlock }: { gallery: Gallery; onUnlock: (clientId: string) => void }) {
+export function AccessGate({ gallery, onUnlock }: { gallery: Gallery; onUnlock: (code: string) => Promise<boolean> }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState(false);
+  const [checking, setChecking] = useState(false);
   const cover = coverOf(gallery);
   const layout = gallery.design.cover;
 
   const form = (
     <form
       className="w-full max-w-sm space-y-6 text-center"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        // Cada cliente tem seu código: é ele que identifica de quem é a seleção.
-        const client = gallery.clients.find((c) => c.accessCode === code.trim());
-        if (client) onUnlock(client.id);
-        else setError(true);
+        // Cada cliente tem seu código: é ele que identifica de quem é a seleção. Quem confere é o servidor.
+        setChecking(true);
+        const ok = await onUnlock(code.trim());
+        setChecking(false);
+        if (!ok) setError(true);
       }}
     >
       <StudioLogo className="text-xl text-muted" imageClassName="mx-auto h-10" />
@@ -45,8 +47,8 @@ export function AccessGate({ gallery, onUnlock }: { gallery: Gallery; onUnlock: 
         />
         {error && <p className="text-sm text-danger">Código incorreto. Confira a mensagem que você recebeu.</p>}
       </div>
-      <Button type="submit" className="w-full">
-        Ver minhas fotos
+      <Button type="submit" className="w-full" disabled={checking || code.length !== 6}>
+        {checking ? "Conferindo…" : "Ver minhas fotos"}
       </Button>
     </form>
   );

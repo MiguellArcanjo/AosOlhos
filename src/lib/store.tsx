@@ -1,27 +1,33 @@
 "use client";
 
-// Camada de dados provisória: guarda tudo no IndexedDB do navegador.
-// Quando o Appwrite entrar, estas mesmas ações passam a chamar a API.
+// Camada de dados das telas. Os dados vivem no Appwrite; aqui fica uma cópia para a tela
+// responder na hora. Cada ação atualiza a cópia e grava no servidor em seguida.
+// Se a gravação falhar, aparece um aviso e os dados são recarregados do servidor.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { get, set } from "idb-keyval";
-import { defaultStudio, seedGalleries } from "./mock-data";
+import { useRouter } from "next/navigation";
+import * as painel from "@/app/actions/painel";
+import * as cliente from "@/app/actions/cliente";
+import { defaultStudio, toggleBwRequest, toggleSelection, withComment, withDerivedStatus, withoutPhoto } from "./gallery-logic";
 import type { Gallery, GalleryClient, GalleryFields, NewGallery, Photo, StudioSettings } from "./types";
 
-const STORAGE_KEY = "aos-olhos:v2";
+type PhotoKind = "selecao" | "entrega" | "dia";
 
-interface Saved {
-  galleries: Gallery[];
-  studio: StudioSettings;
-}
+/** Painel: tudo da fotógrafa. Cliente: só a galeria do link, depois do código. */
+export type StoreSource = { mode: "painel" } | { mode: "cliente"; galleryId: string };
 
 interface StoreValue {
   ready: boolean;
   galleries: Gallery[];
   studio: StudioSettings;
+  /** Área do cliente: quem digitou o código (null = ainda não entrou). */
+  clientId: string | null;
+  /** Área do cliente: galeria fechada (arquivada/expirada) ou ainda não enviada. */
+  closed: false | "indisponivel" | "expirada";
+  unlock: (code: string) => Promise<boolean>;
   updateStudio: (patch: Partial<StudioSettings>) => void;
   getGallery: (id: string) => Gallery | undefined;
-  createGallery: (data: NewGallery) => Gallery;
+  createGallery: (data: NewGallery) => Promise<Gallery>;
   updateGallery: (id: string, patch: Partial<GalleryFields> & { coverPhotoId?: string }) => void;
   deleteGallery: (id: string) => void;
   /** Renomeia a pasta do painel em todas as galerias que estão nela. */
@@ -53,231 +59,351 @@ interface StoreValue {
   addSameDayPhotos: (id: string, photos: Photo[]) => void;
   removeSameDayPhoto: (id: string, photoId: string) => void;
   releaseSameDay: (id: string) => void;
-  resetDemo: () => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-function slugify(text: string) {
-  return text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-/** Código de 6 dígitos que não se repete dentro da galeria. */
-function randomCode(taken: string[] = []) {
-  let code: string;
-  do code = String(Math.floor(100000 + Math.random() * 900000));
-  while (taken.includes(code));
-  return code;
-}
-
 const now = () => new Date().toISOString();
 const shortId = () => Math.random().toString(36).slice(2, 8);
+const photoList: Record<PhotoKind, "photos" | "deliveryPhotos" | "sameDayPhotos"> = {
+  selecao: "photos",
+  entrega: "deliveryPhotos",
+  dia: "sameDayPhotos",
+};
 
-function newClient(name: string, email: string, taken: string[]): GalleryClient {
-  return { id: shortId(), name, email, accessCode: randomCode(taken), selection: { photoIds: [], comments: {}, bwIds: [] } };
+type Loaded =
+  | { ok: true; galleries: Gallery[]; studio: StudioSettings; clientId: string | null; closed: StoreValue["closed"] }
+  | { ok: false };
+
+/** Busca os dados no servidor (painel inteiro ou só a galeria do cliente). */
+async function fetchData(galleryId: string | null): Promise<Loaded> {
+  try {
+    if (galleryId === null) {
+      const data = await painel.loadPainel();
+      return { ok: true, ...data, clientId: null, closed: false };
+    }
+    const view = await cliente.loadClientView(galleryId);
+    return { ok: true, galleries: view.gallery ? [view.gallery] : [], studio: view.studio, clientId: view.clientId, closed: view.closed };
+  } catch (err) {
+    console.error(err);
+    return { ok: false };
+  }
 }
 
-/** Completa campos novos em galerias salvas por versões anteriores. */
-function normalize(g: Gallery): Gallery {
-  return {
-    ...g,
-    category: g.category ?? "",
-    sameDayCount: g.sameDayCount ?? 0,
-    sameDayPhotos: g.sameDayPhotos ?? [],
-    clients: g.clients.map((c) => ({ ...c, selection: { ...c.selection, bwIds: c.selection.bwIds ?? [] } })),
-  };
+/** Envia uma foto (data URL reduzida no navegador) para o servidor. */
+async function uploadPhoto(galleryId: string, kind: PhotoKind, photo: Photo, folderId?: string): Promise<Photo> {
+  const blob = await (await fetch(photo.src)).blob();
+  const form = new FormData();
+  form.set("file", blob, photo.name);
+  form.set("id", photo.id);
+  form.set("galleryId", galleryId);
+  form.set("kind", kind);
+  form.set("name", photo.name);
+  form.set("width", String(photo.width));
+  form.set("height", String(photo.height));
+  if (folderId) form.set("folderId", folderId);
+  const res = await fetch("/api/fotos", { method: "POST", body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `Falha ao enviar ${photo.name}`);
+  return data as Photo;
 }
 
-/** A galeria fica "finalizada" quando todos os clientes finalizaram a seleção. */
-function withDerivedStatus(g: Gallery): Gallery {
-  if (g.status !== "selecao" && g.status !== "finalizada") return g;
-  const allDone = g.clients.length > 0 && g.clients.every((c) => c.finalizedAt);
-  return { ...g, status: allDone ? "finalizada" : "selecao" };
-}
-
-export function StoreProvider({ children }: { children: React.ReactNode }) {
+export function StoreProvider({ source, children }: { source: StoreSource; children: React.ReactNode }) {
+  const router = useRouter();
   const [galleries, setGalleries] = useState<Gallery[]>([]);
   const [studio, setStudio] = useState<StudioSettings>(defaultStudio);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [closed, setClosed] = useState<StoreValue["closed"]>(false);
   const [ready, setReady] = useState(false);
-  const loaded = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(0);
+
+  // Cópias sempre atuais para as ações calcularem o próximo estado antes de gravar.
+  const current = useRef(galleries);
+  const studioRef = useRef(studio);
+  useEffect(() => {
+    current.current = galleries;
+    studioRef.current = studio;
+  });
+  const uploads = useRef(Promise.resolve());
+  const studioTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const galleryId = source.mode === "cliente" ? source.galleryId : null;
+
+  const apply = useCallback(
+    (data: Loaded) => {
+      if (data.ok) {
+        current.current = data.galleries;
+        setGalleries(data.galleries);
+        setStudio(data.studio);
+        setClientId(data.clientId);
+        setClosed(data.closed);
+      } else if (galleryId === null) {
+        // Painel sem sessão válida: volta para o login.
+        router.replace("/entrar");
+        return;
+      } else {
+        setError("Não foi possível carregar a galeria. Verifique a internet e recarregue a página.");
+      }
+      setReady(true);
+    },
+    [galleryId, router],
+  );
+
+  const load = useCallback(() => fetchData(galleryId).then(apply), [galleryId, apply]);
 
   useEffect(() => {
-    get<Saved>(STORAGE_KEY)
-      .then((saved) => {
-        setGalleries(saved?.galleries.map(normalize) ?? seedGalleries());
-        if (saved?.studio) setStudio(saved.studio);
-      })
-      .catch(() => setGalleries(seedGalleries()))
-      .finally(() => {
-        loaded.current = true;
-        setReady(true);
+    let alive = true;
+    fetchData(galleryId).then((data) => alive && apply(data));
+    return () => {
+      alive = false;
+    };
+  }, [galleryId, apply]);
+
+  // Avisa antes de fechar a página com fotos ainda sendo enviadas.
+  useEffect(() => {
+    if (!uploading) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [uploading]);
+
+  /** Grava no servidor; se falhar, avisa e recarrega o que está salvo. */
+  const persist = useCallback(
+    (task: () => Promise<unknown>) => {
+      task().catch((err: unknown) => {
+        console.error(err);
+        setError("Não foi possível salvar a última alteração. Os dados foram recarregados.");
+        void load();
       });
-  }, []);
+    },
+    [load],
+  );
 
-  useEffect(() => {
-    if (loaded.current) set(STORAGE_KEY, { galleries, studio } satisfies Saved).catch(() => {});
-  }, [galleries, studio]);
-
+  /** Atualiza a cópia local e devolve como a galeria ficou. */
   const edit = useCallback((id: string, fn: (g: Gallery) => Gallery) => {
+    const before = current.current.find((g) => g.id === id);
+    const after = before ? fn(before) : undefined;
+    current.current = current.current.map((g) => (g.id === id && after ? after : g));
     setGalleries((list) => list.map((g) => (g.id === id ? fn(g) : g)));
+    return after;
   }, []);
 
   const editClient = useCallback(
-    (id: string, clientId: string, fn: (c: GalleryClient, g: Gallery) => GalleryClient) =>
-      edit(id, (g) => withDerivedStatus({ ...g, clients: g.clients.map((c) => (c.id === clientId ? fn(c, g) : c)) })),
+    (id: string, cid: string, fn: (c: GalleryClient, g: Gallery) => GalleryClient) =>
+      edit(id, (g) => withDerivedStatus({ ...g, clients: g.clients.map((c) => (c.id === cid ? fn(c, g) : c)) })),
     [edit],
   );
 
-  const value = useMemo<StoreValue>(
-    () => ({
+  const addUploads = useCallback(
+    (id: string, kind: PhotoKind, photos: Photo[], folderId?: string) => {
+      const key = photoList[kind];
+      edit(id, (g) => ({
+        ...g,
+        [key]: [...g[key], ...photos.map((p) => ({ ...p, folderId: kind === "selecao" ? folderId : undefined }))],
+        coverPhotoId: kind === "selecao" ? (g.coverPhotoId ?? photos[0]?.id) : g.coverPhotoId,
+      }));
+      setUploading((n) => n + photos.length);
+      // Uma foto por vez, na ordem em que foram escolhidas.
+      for (const photo of photos) {
+        uploads.current = uploads.current.then(async () => {
+          try {
+            const saved = await uploadPhoto(id, kind, photo, folderId);
+            // Troca a prévia local pelo endereço no servidor (mantém a pasta, que pode ter mudado no meio).
+            edit(id, (g) => ({ ...g, [key]: g[key].map((p) => (p.id === photo.id ? { ...saved, folderId: p.folderId } : p)) }));
+          } catch (err) {
+            console.error(err);
+            setError(err instanceof Error ? err.message : `Falha ao enviar ${photo.name}`);
+            edit(id, (g) => ({ ...g, [key]: g[key].filter((p) => p.id !== photo.id) }));
+          } finally {
+            setUploading((n) => n - 1);
+          }
+        });
+      }
+    },
+    [edit],
+  );
+
+  const removeAnyPhoto = useCallback(
+    (id: string, photoId: string) => {
+      edit(id, (g) => {
+        const photos = g.photos.filter((p) => p.id !== photoId);
+        return {
+          ...g,
+          photos,
+          deliveryPhotos: g.deliveryPhotos.filter((p) => p.id !== photoId),
+          sameDayPhotos: g.sameDayPhotos.filter((p) => p.id !== photoId),
+          coverPhotoId: g.coverPhotoId === photoId ? photos[0]?.id : g.coverPhotoId,
+          favoriteIds: g.favoriteIds.filter((f) => f !== photoId),
+          clients: g.clients.map((c) => withoutPhoto(c, photoId)),
+        };
+      });
+      persist(() => painel.removePhoto(id, photoId));
+    },
+    [edit, persist],
+  );
+
+  const value = useMemo<StoreValue>(() => {
+    const saveGallery = (id: string, fn: (g: Gallery) => Gallery, pick: (g: Gallery) => Parameters<typeof painel.updateGallery>[1]) => {
+      const after = edit(id, fn);
+      if (after) persist(() => painel.updateGallery(id, pick(after)));
+    };
+
+    return {
       ready,
       galleries,
       studio,
-      updateStudio: (patch) => setStudio((s) => ({ ...s, ...patch })),
+      clientId,
+      closed,
+      unlock: async (code) => {
+        if (galleryId === null) return false;
+        const ok = await cliente.unlockGallery(galleryId, code);
+        if (ok) await load();
+        return ok;
+      },
+      updateStudio: (patch) => {
+        const next = { ...studioRef.current, ...patch };
+        studioRef.current = next;
+        setStudio(next);
+        // Digitar o nome não grava a cada tecla: espera uma pausa.
+        clearTimeout(studioTimer.current);
+        studioTimer.current = setTimeout(() => persist(() => painel.updateStudio(studioRef.current)), 600);
+      },
       getGallery: (id) => galleries.find((g) => g.id === id),
-      createGallery: ({ clientEmail, ...data }) => {
-        const base = slugify(`${data.title} ${data.clientName}`) || "galeria";
-        const gallery: Gallery = {
-          ...data,
-          category: data.category.trim(),
-          id: `${base}-${Math.random().toString(36).slice(2, 6)}`,
-          clients: [newClient(data.clientName, clientEmail, [])],
-          archived: false,
-          status: "rascunho",
-          createdAt: now(),
-          folders: [],
-          photos: [],
-          favoriteIds: [],
-          deliveryPhotos: [],
-          sameDayPhotos: [],
-        };
+      createGallery: async (data) => {
+        const gallery = await painel.createGallery(data);
+        current.current = [gallery, ...current.current];
         setGalleries((list) => [gallery, ...list]);
         return gallery;
       },
-      updateGallery: (id, patch) => edit(id, (g) => ({ ...g, ...patch })),
-      deleteGallery: (id) => setGalleries((list) => list.filter((g) => g.id !== id)),
-      renameCategory: (from, to) =>
-        setGalleries((list) => list.map((g) => (g.category === from ? { ...g, category: to.trim() } : g))),
-      setArchived: (id, archived) => edit(id, (g) => ({ ...g, archived })),
+      updateGallery: (id, patch) => saveGallery(id, (g) => ({ ...g, ...patch }), () => patch),
+      deleteGallery: (id) => {
+        setGalleries((list) => list.filter((g) => g.id !== id));
+        persist(() => painel.deleteGallery(id));
+      },
+      renameCategory: (from, to) => {
+        setGalleries((list) => list.map((g) => (g.category === from ? { ...g, category: to.trim() } : g)));
+        persist(() => painel.renameCategory(from, to));
+      },
+      setArchived: (id, archived) => saveGallery(id, (g) => ({ ...g, archived }), () => ({ archived })),
 
-      addPhotos: (id, photos, folderId) =>
-        edit(id, (g) => ({
-          ...g,
-          photos: [...g.photos, ...photos.map((p) => ({ ...p, folderId }))],
-          coverPhotoId: g.coverPhotoId ?? photos[0]?.id,
-        })),
-      removePhoto: (id, photoId) =>
-        edit(id, (g) => {
-          const photos = g.photos.filter((p) => p.id !== photoId);
-          return {
-            ...g,
-            photos,
-            coverPhotoId: g.coverPhotoId === photoId ? photos[0]?.id : g.coverPhotoId,
-            favoriteIds: g.favoriteIds.filter((f) => f !== photoId),
-            clients: g.clients.map((c) => {
-              const comments = { ...c.selection.comments };
-              delete comments[photoId];
-              const { photoIds, bwIds } = c.selection;
-              return {
-                ...c,
-                selection: { photoIds: photoIds.filter((s) => s !== photoId), comments, bwIds: bwIds.filter((s) => s !== photoId) },
-              };
-            }),
-          };
-        }),
+      addPhotos: (id, photos, folderId) => addUploads(id, "selecao", photos, folderId),
+      removePhoto: removeAnyPhoto,
       toggleFavorite: (id, photoId) =>
-        edit(id, (g) => ({
-          ...g,
-          favoriteIds: g.favoriteIds.includes(photoId)
-            ? g.favoriteIds.filter((f) => f !== photoId)
-            : [...g.favoriteIds, photoId],
-        })),
+        saveGallery(
+          id,
+          (g) => ({
+            ...g,
+            favoriteIds: g.favoriteIds.includes(photoId) ? g.favoriteIds.filter((f) => f !== photoId) : [...g.favoriteIds, photoId],
+          }),
+          (g) => ({ favoriteIds: g.favoriteIds }),
+        ),
       addFolder: (id, name) => {
         const folderId = shortId();
-        edit(id, (g) => ({ ...g, folders: [...g.folders, { id: folderId, name }] }));
+        saveGallery(id, (g) => ({ ...g, folders: [...g.folders, { id: folderId, name }] }), (g) => ({ folders: g.folders }));
         return folderId;
       },
       renameFolder: (id, folderId, name) =>
-        edit(id, (g) => ({ ...g, folders: g.folders.map((f) => (f.id === folderId ? { ...f, name } : f)) })),
-      removeFolder: (id, folderId) =>
+        saveGallery(
+          id,
+          (g) => ({ ...g, folders: g.folders.map((f) => (f.id === folderId ? { ...f, name } : f)) }),
+          (g) => ({ folders: g.folders }),
+        ),
+      removeFolder: (id, folderId) => {
         edit(id, (g) => ({
           ...g,
           folders: g.folders.filter((f) => f.id !== folderId),
           // As fotos não são apagadas: só saem da pasta.
           photos: g.photos.map((p) => (p.folderId === folderId ? { ...p, folderId: undefined } : p)),
-        })),
-      movePhotos: (id, photoIds, folderId) =>
-        edit(id, (g) => ({ ...g, photos: g.photos.map((p) => (photoIds.includes(p.id) ? { ...p, folderId } : p)) })),
+        }));
+        persist(() => painel.removeFolder(id, folderId));
+      },
+      movePhotos: (id, photoIds, folderId) => {
+        edit(id, (g) => ({ ...g, photos: g.photos.map((p) => (photoIds.includes(p.id) ? { ...p, folderId } : p)) }));
+        persist(() => painel.movePhotos(id, photoIds, folderId ?? null));
+      },
 
       addClient: (id, name, email) =>
-        edit(id, (g) =>
-          withDerivedStatus({ ...g, clients: [...g.clients, newClient(name, email, g.clients.map((c) => c.accessCode))] }),
-        ),
-      updateClient: (id, clientId, patch) => editClient(id, clientId, (c) => ({ ...c, ...patch })),
-      removeClient: (id, clientId) =>
-        edit(id, (g) => withDerivedStatus({ ...g, clients: g.clients.filter((c) => c.id !== clientId) })),
-
-      sendToClient: (id) =>
-        edit(id, (g) => ({
-          ...g,
-          status: g.status === "rascunho" ? "selecao" : g.status,
-          sentAt: g.sentAt ?? now(),
-        })),
-      toggleSelected: (id, clientId, photoId) =>
-        editClient(id, clientId, (c, g) => {
-          if (g.status !== "selecao" || c.finalizedAt) return c;
-          const has = c.selection.photoIds.includes(photoId);
-          if (!has && !g.allowExtras && c.selection.photoIds.length >= g.includedPhotos) return c;
-          const photoIds = has ? c.selection.photoIds.filter((p) => p !== photoId) : [...c.selection.photoIds, photoId];
-          // Desmarcar a foto também tira o pedido de preto e branco.
-          const bwIds = has ? c.selection.bwIds.filter((p) => p !== photoId) : c.selection.bwIds;
-          return { ...c, selection: { ...c.selection, photoIds, bwIds } };
+        persist(async () => {
+          const client = await painel.addClient(id, name, email);
+          edit(id, (g) => withDerivedStatus({ ...g, clients: [...g.clients, client] }));
         }),
-      setComment: (id, clientId, photoId, comment) =>
-        editClient(id, clientId, (c) => {
-          const comments = { ...c.selection.comments };
-          if (comment.trim()) comments[photoId] = comment;
-          else delete comments[photoId];
-          return { ...c, selection: { ...c.selection, comments } };
-        }),
-      toggleBw: (id, clientId, photoId) =>
-        editClient(id, clientId, (c, g) => {
-          if (g.status !== "selecao" || c.finalizedAt || !c.selection.photoIds.includes(photoId)) return c;
-          const { bwIds } = c.selection;
-          return {
-            ...c,
-            selection: { ...c.selection, bwIds: bwIds.includes(photoId) ? bwIds.filter((p) => p !== photoId) : [...bwIds, photoId] },
-          };
-        }),
-      finalizeSelection: (id, clientId) => editClient(id, clientId, (c) => ({ ...c, finalizedAt: now() })),
-      reopenSelection: (id, clientId) => editClient(id, clientId, (c) => ({ ...c, finalizedAt: undefined })),
-      addDeliveryPhotos: (id, photos) => edit(id, (g) => ({ ...g, deliveryPhotos: [...g.deliveryPhotos, ...photos] })),
-      removeDeliveryPhoto: (id, photoId) =>
-        edit(id, (g) => ({ ...g, deliveryPhotos: g.deliveryPhotos.filter((p) => p.id !== photoId) })),
-      deliver: (id) => edit(id, (g) => ({ ...g, status: "entregue", deliveredAt: now() })),
-      addSameDayPhotos: (id, photos) =>
-        edit(id, (g) => ({
-          ...g,
-          // Respeita a quantidade combinada para o dia.
-          sameDayPhotos: [...g.sameDayPhotos, ...photos].slice(0, Math.max(g.sameDayCount, g.sameDayPhotos.length)),
-        })),
-      removeSameDayPhoto: (id, photoId) =>
-        edit(id, (g) => ({ ...g, sameDayPhotos: g.sameDayPhotos.filter((p) => p.id !== photoId) })),
-      releaseSameDay: (id) => edit(id, (g) => ({ ...g, sameDayReleasedAt: g.sameDayReleasedAt ?? now() })),
-      resetDemo: () => {
-        setGalleries(seedGalleries());
-        setStudio(defaultStudio());
+      updateClient: (id, cid, patch) => {
+        editClient(id, cid, (c) => ({ ...c, ...patch }));
+        persist(() => painel.updateClient(id, cid, patch));
       },
-    }),
-    [ready, galleries, studio, edit, editClient],
-  );
+      removeClient: (id, cid) => {
+        edit(id, (g) => withDerivedStatus({ ...g, clients: g.clients.filter((c) => c.id !== cid) }));
+        persist(() => painel.removeClient(id, cid));
+      },
 
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+      sendToClient: (id) => {
+        const g = current.current.find((x) => x.id === id);
+        if (!g || (g.status !== "rascunho" && g.sentAt)) return;
+        edit(id, (x) => withDerivedStatus({ ...x, status: x.status === "rascunho" ? "selecao" : x.status, sentAt: x.sentAt ?? now() }));
+        persist(() => painel.sendToClient(id));
+      },
+      toggleSelected: (id, cid, photoId) => {
+        editClient(id, cid, (c, g) => toggleSelection(g, c, photoId));
+        persist(() => cliente.toggleSelected(id, photoId));
+      },
+      setComment: (id, cid, photoId, comment) => {
+        editClient(id, cid, (c) => withComment(c, photoId, comment));
+        persist(() => cliente.setComment(id, photoId, comment));
+      },
+      toggleBw: (id, cid, photoId) => {
+        editClient(id, cid, (c, g) => toggleBwRequest(g, c, photoId));
+        persist(() => cliente.toggleBw(id, photoId));
+      },
+      finalizeSelection: (id, cid) => {
+        editClient(id, cid, (c) => ({ ...c, finalizedAt: now() }));
+        persist(() => cliente.finalizeSelection(id));
+      },
+      reopenSelection: (id, cid) => {
+        editClient(id, cid, (c) => ({ ...c, finalizedAt: undefined }));
+        persist(() => painel.reopenSelection(id, cid));
+      },
+      addDeliveryPhotos: (id, photos) => addUploads(id, "entrega", photos),
+      removeDeliveryPhoto: removeAnyPhoto,
+      deliver: (id) => {
+        edit(id, (g) => ({ ...g, status: "entregue", deliveredAt: now() }));
+        persist(() => painel.deliver(id));
+      },
+      addSameDayPhotos: (id, photos) => {
+        // Respeita a quantidade combinada para o dia.
+        const g = current.current.find((x) => x.id === id);
+        const room = g ? Math.max(0, g.sameDayCount - g.sameDayPhotos.length) : 0;
+        if (room) addUploads(id, "dia", photos.slice(0, room));
+      },
+      removeSameDayPhoto: removeAnyPhoto,
+      releaseSameDay: (id) => {
+        edit(id, (g) => ({ ...g, sameDayReleasedAt: g.sameDayReleasedAt ?? now() }));
+        persist(() => painel.releaseSameDay(id));
+      },
+    };
+  }, [ready, galleries, studio, clientId, closed, galleryId, load, edit, editClient, persist, addUploads, removeAnyPhoto]);
+
+  return (
+    <StoreContext.Provider value={value}>
+      {children}
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4">
+        {uploading > 0 && (
+          <p role="status" className="rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg">
+            Enviando {uploading} foto{uploading === 1 ? "" : "s"}… não feche a página
+          </p>
+        )}
+        {error && (
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="pointer-events-auto max-w-md rounded-2xl bg-danger px-4 py-2.5 text-left text-sm text-white shadow-lg"
+          >
+            {error} <span className="opacity-70">(toque para fechar)</span>
+          </button>
+        )}
+      </div>
+    </StoreContext.Provider>
+  );
 }
 
 export function useStore() {

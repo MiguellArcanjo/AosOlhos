@@ -6,29 +6,17 @@ import { Spinner } from "@/components/ui";
 import { StudioLogo } from "@/components/studio-logo";
 import { designStyle } from "@/lib/design";
 import { useStore } from "@/lib/store";
-import { formatDate, isExpired } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { AccessGate } from "./access-gate";
 import { ClientSelection } from "./client-selection";
 import { ClientDone } from "./client-done";
 import { ClientDelivery } from "./client-delivery";
 
-const accessKey = (id: string) => `aos-olhos:acesso:${id}`;
-
-/** Id do cliente que já digitou o código nesta aba. */
-function savedClient(id: string) {
-  try {
-    return typeof window === "undefined" ? null : sessionStorage.getItem(accessKey(id));
-  } catch {
-    return null;
-  }
-}
-
 export default function ClientGalleryPage() {
   const { id } = useParams<{ id: string }>();
-  const { ready, getGallery, studio } = useStore();
+  // O servidor só devolve a galeria se ela estiver aberta, e só os dados do cliente que digitou o código.
+  const { ready, getGallery, studio, clientId, closed, unlock } = useStore();
   const gallery = getGallery(id);
-  // O servidor sempre mostra o carregamento (store ainda não pronta), então ler aqui não causa divergência.
-  const [clientId, setClientId] = useState(() => savedClient(id));
   const [viewSameDay, setViewSameDay] = useState(false);
 
   if (!ready) return <Spinner />;
@@ -36,8 +24,8 @@ export default function ClientGalleryPage() {
   // Fotos do dia liberadas abrem a galeria mesmo antes de ela ir para seleção.
   const sameDay = !!gallery?.sameDayReleasedAt && gallery.sameDayPhotos.length > 0;
 
-  if (!gallery || (gallery.status === "rascunho" && !sameDay) || gallery.archived || isExpired(gallery)) {
-    const expired = gallery && (gallery.archived || isExpired(gallery));
+  if (!gallery || closed) {
+    const expired = gallery && closed === "expirada";
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
         <StudioLogo />
@@ -53,15 +41,7 @@ export default function ClientGalleryPage() {
   const client = gallery.clients.find((c) => c.id === clientId);
 
   const content = !client ? (
-    <AccessGate
-      gallery={gallery}
-      onUnlock={(cid) => {
-        try {
-          sessionStorage.setItem(accessKey(id), cid);
-        } catch {}
-        setClientId(cid);
-      }}
-    />
+    <AccessGate gallery={gallery} onUnlock={unlock} />
   ) : gallery.status === "entregue" ? (
     <ClientDelivery gallery={gallery} />
   ) : gallery.status === "rascunho" || viewSameDay ? (

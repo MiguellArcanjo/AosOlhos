@@ -9,6 +9,9 @@ import { useStore } from "@/lib/store";
 import type { Gallery, Photo } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
+/** Fotos entregues saem maiores que as de seleção: o cliente baixa e guarda. */
+const DELIVERY_SIZE = 2560;
+
 export function DeliveryTab({
   gallery,
   onShare,
@@ -62,6 +65,7 @@ export function DeliveryTab({
       <Dropzone
         compact={gallery.deliveryPhotos.length > 0}
         label="Arraste aqui as fotos editadas"
+        maxSize={DELIVERY_SIZE}
         onPhotos={(photos) => addDeliveryPhotos(gallery.id, photos)}
       />
 
@@ -147,7 +151,7 @@ function SameDayCard({ gallery, onShare }: { gallery: Gallery; onShare: () => vo
       </p>
 
       {remaining > 0 && (
-        <Dropzone compact label={`Arraste até ${remaining} foto${remaining === 1 ? "" : "s"} do dia`} onPhotos={add} />
+        <Dropzone compact maxSize={DELIVERY_SIZE} label={`Arraste até ${remaining} foto${remaining === 1 ? "" : "s"} do dia`} onPhotos={add} />
       )}
       {notice && <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">{notice}</p>}
 

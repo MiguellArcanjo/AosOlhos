@@ -1,11 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useActionState } from "react";
 import { Button, Field, Logo, inputClass } from "@/components/ui";
+import { login } from "@/app/actions/auth";
 
-// Login só visual por enquanto: a autenticação real virá com o Appwrite.
 export default function LoginPage() {
-  const router = useRouter();
+  const [state, formAction, pending] = useActionState(
+    async (_: { error: string } | undefined, form: FormData) => login(String(form.get("email")), String(form.get("senha"))),
+    undefined,
+  );
 
   return (
     <main className="grid flex-1 lg:grid-cols-2">
@@ -19,27 +22,21 @@ export default function LoginPage() {
       </div>
 
       <div className="flex items-center justify-center px-6 py-16">
-        <form
-          className="w-full max-w-sm space-y-6"
-          onSubmit={(e) => {
-            e.preventDefault();
-            router.push("/painel");
-          }}
-        >
+        <form action={formAction} className="w-full max-w-sm space-y-6">
           <div className="space-y-2 text-center">
             <Logo className="text-3xl" />
             <p className="text-sm text-muted">Área da fotógrafa</p>
           </div>
           <Field label="E-mail">
-            <input type="email" className={inputClass} placeholder="voce@exemplo.com" autoComplete="email" />
+            <input name="email" type="email" required className={inputClass} placeholder="voce@exemplo.com" autoComplete="email" />
           </Field>
           <Field label="Senha">
-            <input type="password" className={inputClass} placeholder="••••••••" autoComplete="current-password" />
+            <input name="senha" type="password" required className={inputClass} placeholder="••••••••" autoComplete="current-password" />
           </Field>
-          <Button type="submit" className="w-full">
-            Entrar
+          {state?.error && <p className="text-sm text-danger">{state.error}</p>}
+          <Button type="submit" className="w-full" disabled={pending}>
+            {pending ? "Entrando…" : "Entrar"}
           </Button>
-          <p className="text-center text-xs text-muted">Versão de demonstração — qualquer dado entra.</p>
         </form>
       </div>
     </main>

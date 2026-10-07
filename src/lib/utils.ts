@@ -87,15 +87,32 @@ export function fileBaseName(name: string) {
   return name.replace(/\.[^.]+$/, "");
 }
 
+/** Formatos RAW de câmera: o navegador não abre, precisam ser exportados em JPEG antes. */
+const RAW_EXTENSIONS = ["raw", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw", "3fr", "iiq"];
+
 /**
- * Lê as imagens escolhidas e gera versões reduzidas no navegador.
- * Enquanto não há backend, é isso que fica salvo; depois o original vai para o Appwrite.
+ * Lê as imagens escolhidas e gera versões reduzidas no navegador (é isso que vai para o Appwrite).
+ * Arquivos que o navegador não consegue abrir (RAW, HEIC no Chrome…) voltam em `skipped`, sem travar os demais.
  */
-export async function filesToPhotos(files: File[], maxSize = 1600): Promise<Photo[]> {
-  const images = files.filter((f) => f.type.startsWith("image/"));
+export async function filesToPhotos(
+  files: File[],
+  maxSize = 1600,
+): Promise<{ photos: Photo[]; skipped: { name: string; raw: boolean }[] }> {
   const photos: Photo[] = [];
-  for (const file of images) {
-    const bitmap = await createImageBitmap(file);
+  const skipped: { name: string; raw: boolean }[] = [];
+  for (const file of files) {
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (RAW_EXTENSIONS.includes(ext)) {
+      skipped.push({ name: file.name, raw: true });
+      continue;
+    }
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      skipped.push({ name: file.name, raw: false });
+      continue;
+    }
     const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
     const width = Math.round(bitmap.width * scale);
     const height = Math.round(bitmap.height * scale);
@@ -112,5 +129,5 @@ export async function filesToPhotos(files: File[], maxSize = 1600): Promise<Phot
       height,
     });
   }
-  return photos;
+  return { photos, skipped };
 }
