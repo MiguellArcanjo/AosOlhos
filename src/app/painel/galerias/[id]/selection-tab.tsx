@@ -2,7 +2,7 @@
 
 import { useDialog } from "@/components/dialog";
 import { useState } from "react";
-import { Check, CheckCircle2, Clock, Copy, Download, MessageSquare, RotateCcw } from "lucide-react";
+import { Check, CheckCircle2, Clock, Contrast, Copy, Download, MessageSquare, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui";
 import { Lightbox } from "@/components/lightbox";
 import { useStore } from "@/lib/store";
@@ -14,8 +14,11 @@ async function copyNames(photos: Photo[]) {
   await navigator.clipboard.writeText(photos.map((p) => fileBaseName(p.name)).join(", "));
 }
 
-function downloadList(photos: Photo[], comments: Record<string, string>, filename: string) {
-  const lines = photos.map((p) => (comments[p.id] ? `${p.name} — ${comments[p.id]}` : p.name));
+function downloadList(photos: Photo[], comments: Record<string, string>, bwIds: string[], filename: string) {
+  const lines = photos.map((p) => {
+    const name = bwIds.includes(p.id) ? `${p.name} [P&B]` : p.name;
+    return comments[p.id] ? `${name} — ${comments[p.id]}` : name;
+  });
   const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -60,8 +63,11 @@ export function SelectionTab({ gallery }: { gallery: Gallery }) {
 function ClientSelectionView({ gallery, client }: { gallery: Gallery; client: GalleryClient }) {
   const { reopenSelection } = useStore();
   const [open, setOpen] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [grayscale, setGrayscale] = useState(false);
+  const [copied, setCopied] = useState<"todas" | "pb" | null>(null);
   const selected = gallery.photos.filter((p) => client.selection.photoIds.includes(p.id));
+  const bwIds = client.selection.bwIds;
+  const bwPhotos = selected.filter((p) => bwIds.includes(p.id));
   const [dialog, dialogElement] = useDialog();
   const extras = extrasOf(gallery, client);
   const comments = client.selection.comments;
@@ -91,14 +97,27 @@ function ClientSelectionView({ gallery, client }: { gallery: Gallery; client: Ga
               variant="secondary"
               onClick={async () => {
                 await copyNames(selected);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
+                setCopied("todas");
+                setTimeout(() => setCopied(null), 2000);
               }}
             >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-              {copied ? "Copiado!" : "Copiar nomes (Lightroom)"}
+              {copied === "todas" ? <Check size={16} /> : <Copy size={16} />}
+              {copied === "todas" ? "Copiado!" : "Copiar nomes (Lightroom)"}
             </Button>
-            <Button variant="secondary" onClick={() => downloadList(selected, comments, `selecao-${gallery.id}-${client.id}.txt`)}>
+            {bwPhotos.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  await copyNames(bwPhotos);
+                  setCopied("pb");
+                  setTimeout(() => setCopied(null), 2000);
+                }}
+              >
+                {copied === "pb" ? <Check size={16} /> : <Contrast size={16} />}
+                {copied === "pb" ? "Copiado!" : `Copiar as ${bwPhotos.length} em P&B`}
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => downloadList(selected, comments, bwIds, `selecao-${gallery.id}-${client.id}.txt`)}>
               <Download size={16} /> Baixar lista .txt
             </Button>
             {client.finalizedAt && gallery.status !== "entregue" && (
@@ -114,7 +133,7 @@ function ClientSelectionView({ gallery, client }: { gallery: Gallery; client: Ga
             )}
           </div>
 
-          <PhotoGrid photos={selected} comments={comments} onOpen={setOpen} />
+          <PhotoGrid photos={selected} comments={comments} bwIds={bwIds} onOpen={setOpen} />
         </>
       ) : (
         <Empty>Nenhuma foto selecionada ainda.</Empty>
@@ -126,13 +145,22 @@ function ClientSelectionView({ gallery, client }: { gallery: Gallery; client: Ga
           index={open}
           onIndex={setOpen}
           onClose={() => setOpen(null)}
-          footer={(p) =>
-            comments[p.id] ? (
-              <p className="mx-auto max-w-2xl text-center text-sm text-white/80">
-                <MessageSquare size={14} className="mr-1 inline" /> {comments[p.id]}
-              </p>
-            ) : null
-          }
+          grayscale={grayscale}
+          onGrayscale={setGrayscale}
+          footer={(p) => (
+            <div className="mx-auto max-w-2xl space-y-1 text-center text-sm text-white/80">
+              {bwIds.includes(p.id) && (
+                <p>
+                  <Contrast size={14} className="mr-1 inline" /> Pediu em preto e branco
+                </p>
+              )}
+              {comments[p.id] && (
+                <p>
+                  <MessageSquare size={14} className="mr-1 inline" /> {comments[p.id]}
+                </p>
+              )}
+            </div>
+          )}
         />
       )}
     </div>
@@ -144,6 +172,7 @@ function CombinedView({ gallery }: { gallery: Gallery }) {
   const [copied, setCopied] = useState(false);
   const votes = new Map<string, string[]>();
   for (const c of gallery.clients) for (const id of c.selection.photoIds) votes.set(id, [...(votes.get(id) ?? []), c.name]);
+  const bwAsked = new Set(gallery.clients.flatMap((c) => c.selection.bwIds));
   const selected = gallery.photos.filter((p) => votes.has(p.id));
   const done = gallery.clients.filter((c) => c.finalizedAt).length;
 
@@ -169,9 +198,10 @@ function CombinedView({ gallery }: { gallery: Gallery }) {
           </Button>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {selected.map((p) => (
-              <div key={p.id} className="overflow-hidden rounded-xl border border-line bg-surface">
+              <div key={p.id} className="relative overflow-hidden rounded-xl border border-line bg-surface">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.src} alt={p.name} loading="lazy" className="aspect-square w-full object-cover" />
+                {bwAsked.has(p.id) && <BwBadge />}
                 <div className="p-2 text-xs">
                   <p className="font-medium">{p.name}</p>
                   <p className="mt-0.5 line-clamp-2 text-muted" title={votes.get(p.id)!.join(", ")}>
@@ -189,7 +219,17 @@ function CombinedView({ gallery }: { gallery: Gallery }) {
   );
 }
 
-function PhotoGrid({ photos, comments, onOpen }: { photos: Photo[]; comments: Record<string, string>; onOpen: (i: number) => void }) {
+function PhotoGrid({
+  photos,
+  comments,
+  bwIds,
+  onOpen,
+}: {
+  photos: Photo[];
+  comments: Record<string, string>;
+  bwIds: string[];
+  onOpen: (i: number) => void;
+}) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {photos.map((p, i) => (
@@ -202,6 +242,7 @@ function PhotoGrid({ photos, comments, onOpen }: { photos: Photo[]; comments: Re
                 <MessageSquare size={14} className="text-accent-strong" />
               </span>
             )}
+            {bwIds.includes(p.id) && <BwBadge />}
           </div>
           <div className="p-2 text-xs">
             <p className="font-medium">{p.name}</p>
@@ -213,6 +254,14 @@ function PhotoGrid({ photos, comments, onOpen }: { photos: Photo[]; comments: Re
   );
 }
 
+function BwBadge() {
+  return (
+    <span className="absolute left-2 top-2 rounded-full bg-neutral-900 px-2 py-0.5 text-[11px] font-semibold text-white shadow" title="Cliente pediu em preto e branco">
+      P&amp;B
+    </span>
+  );
+}
+
 function ClientChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
@@ -220,7 +269,7 @@ function ClientChip({ active, onClick, children }: { active: boolean; onClick: (
       onClick={onClick}
       className={cn(
         "flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition",
-        active ? "bg-foreground text-white" : "border border-line bg-surface hover:bg-accent-soft",
+        active ? "bg-foreground text-background" : "border border-line bg-surface hover:bg-accent-soft",
       )}
     >
       {children}

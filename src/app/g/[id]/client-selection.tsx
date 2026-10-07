@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Heart, MessageSquare, Star } from "lucide-react";
+import { Contrast, Gift, Heart, MessageSquare, Star } from "lucide-react";
 import { Button, Modal, inputClass } from "@/components/ui";
 import { Lightbox } from "@/components/lightbox";
 import { JustifiedGrid } from "@/components/justified-grid";
@@ -13,8 +13,19 @@ import { cn, deadlineLabel, daysUntil, extrasOf, formatMoney, photosInFolder } f
 
 type Filter = "todas" | "selecionadas" | "favoritas";
 
-export function ClientSelection({ gallery, client }: { gallery: Gallery; client: GalleryClient }) {
-  const { toggleSelected, setComment, finalizeSelection } = useStore();
+export function ClientSelection({
+  gallery,
+  client,
+  onSameDay,
+}: {
+  gallery: Gallery;
+  client: GalleryClient;
+  /** Abre as fotos entregues no dia (quando a fotógrafa já liberou). */
+  onSameDay?: () => void;
+}) {
+  const { toggleSelected, setComment, toggleBw, finalizeSelection } = useStore();
+  // Prévia em preto e branco (só visual, não muda a seleção).
+  const [bw, setBw] = useState(false);
   const [filter, setFilter] = useState<Filter>("todas");
   const [folder, setFolder] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
@@ -23,6 +34,7 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
 
   const selectedIds = client.selection.photoIds;
   const comments = client.selection.comments;
+  const bwIds = client.selection.bwIds;
   const count = selectedIds.length;
   const extras = extrasOf(gallery, client);
   const full = !gallery.allowExtras && count >= gallery.includedPhotos;
@@ -67,9 +79,16 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
             </div>
           </div>
 
-          <Button onClick={() => setConfirming(true)} disabled={count === 0}>
-            Finalizar seleção
-          </Button>
+          <div className="flex items-center gap-2">
+            {onSameDay && (
+              <Button variant="secondary" onClick={onSameDay}>
+                <Gift size={16} /> <span className="hidden sm:inline">Fotos do dia</span>
+              </Button>
+            )}
+            <Button onClick={() => setConfirming(true)} disabled={count === 0}>
+              Finalizar seleção
+            </Button>
+          </div>
         </div>
 
         {folders.length > 0 && (
@@ -99,9 +118,16 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
               </FilterButton>
             )}
           </div>
-          <span className={cn("hidden whitespace-nowrap text-xs sm:block", late ? "text-danger" : "text-muted")}>
-            {deadlineLabel(gallery.deadline)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={cn("hidden whitespace-nowrap text-xs sm:block", late ? "text-danger" : "text-muted")}>
+              {deadlineLabel(gallery.deadline)}
+            </span>
+            <FilterButton active={bw} onClick={() => setBw(!bw)} title="Ver as fotos em preto e branco">
+              <span className="flex items-center gap-1.5">
+                <Contrast size={14} /> P&amp;B
+              </span>
+            </FilterButton>
+          </div>
         </div>
       </header>
 
@@ -129,7 +155,12 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
                       sel && "ring-4 ring-accent ring-offset-2 ring-offset-background",
                     )}
                   >
-                    <ProtectedImage photo={p} enabled={gallery.watermark} loading="lazy" className="h-full w-full object-cover" />
+                    <ProtectedImage
+                      photo={p}
+                      enabled={gallery.watermark}
+                      loading="lazy"
+                      className={cn("h-full w-full object-cover transition-[filter] duration-300", bw && "grayscale")}
+                    />
                   </button>
                   <button
                     type="button"
@@ -154,6 +185,11 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
                         <MessageSquare size={13} className="text-[#7d6045]" />
                       </span>
                     )}
+                    {bwIds.includes(p.id) && (
+                      <span className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-[#2b2724] shadow" title="Pedida em preto e branco">
+                        P&amp;B
+                      </span>
+                    )}
                   </div>
                   <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] text-white">
                     {p.name}
@@ -172,6 +208,8 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
           index={open}
           onIndex={setOpen}
           onClose={() => setOpen(null)}
+          grayscale={bw}
+          onGrayscale={setBw}
           renderImage={(p, className) => <ProtectedImage key={p.id} photo={p} enabled={gallery.watermark} className={className} />}
           onKey={(e, p) => {
             if (e.key !== " ") return false;
@@ -196,7 +234,20 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
             );
           }}
           footer={(p) => (
-            <CommentBox key={p.id} value={comments[p.id] ?? ""} onSave={(text) => setComment(gallery.id, client.id, p.id, text)} />
+            <div className="mx-auto max-w-2xl space-y-2">
+              {isSelected(p) && (
+                <label className="flex items-center justify-center gap-2 text-sm text-white/80">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-white"
+                    checked={bwIds.includes(p.id)}
+                    onChange={() => toggleBw(gallery.id, client.id, p.id)}
+                  />
+                  Quero esta foto em preto e branco
+                </label>
+              )}
+              <CommentBox key={p.id} value={comments[p.id] ?? ""} onSave={(text) => setComment(gallery.id, client.id, p.id, text)} />
+            </div>
           )}
         />
       )}
@@ -211,6 +262,7 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
           </li>
           {folders.length > 0 && <li>📁 As fotos estão separadas por momento, nas abas lá em cima</li>}
           <li>💬 Abra a foto para deixar um comentário</li>
+          <li>◐ Use o botão P&amp;B para ver em preto e branco e, se quiser, peça a foto assim</li>
           <li>✅ Quando terminar, clique em “Finalizar seleção”</li>
         </ul>
         <Button className="mt-6 w-full" onClick={() => setWelcome(false)}>
@@ -226,6 +278,11 @@ export function ClientSelection({ gallery, client }: { gallery: Gallery; client:
           {count < gallery.includedPhotos && (
             <p className="rounded-xl bg-amber-50 px-3 py-2 text-amber-900">
               Seu pacote inclui {gallery.includedPhotos} — ainda dá para escolher mais {gallery.includedPhotos - count}.
+            </p>
+          )}
+          {bwIds.length > 0 && (
+            <p>
+              {bwIds.length} em preto e branco.
             </p>
           )}
           {extras > 0 && (
@@ -264,11 +321,23 @@ function FolderTab({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function FilterButton({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
+      aria-pressed={active}
       className={cn(
         "whitespace-nowrap rounded-full px-3 py-1 text-sm transition",
         active ? "bg-foreground text-background" : "text-muted hover:bg-accent-soft",
@@ -283,7 +352,7 @@ function CommentBox({ value, onSave }: { value: string; onSave: (text: string) =
   const [text, setText] = useState(value);
   const dirty = text !== value;
   return (
-    <div className="mx-auto flex max-w-2xl gap-2">
+    <div className="flex gap-2">
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}

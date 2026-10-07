@@ -30,7 +30,7 @@ function client(id: string, name: string, accessCode: string, photoIds: string[]
     name,
     email: `${id}@example.com`,
     accessCode,
-    selection: { photoIds, comments: {} },
+    selection: { photoIds, comments: {}, bwIds: [] },
     ...extra,
   };
 }
@@ -63,12 +63,19 @@ export function seedGalleries(): Gallery[] {
   ];
   const formatura = demoPhotos("formatura", 42, formaturaFolders);
   const aniversario = demoPhotos("aniversario", 20);
+  const theoFolders: Folder[] = [
+    { id: "decoracao", name: "Decoração" },
+    { id: "parabens", name: "Parabéns" },
+  ];
+  const theo = demoPhotos("theo", 30, theoFolders);
 
   const base = {
     archived: false,
     folders: [] as Folder[],
     favoriteIds: [] as string[],
     deliveryPhotos: [] as Photo[],
+    sameDayCount: 0,
+    sameDayPhotos: [] as Photo[],
     watermark: true,
     allowShare: true,
   };
@@ -76,14 +83,40 @@ export function seedGalleries(): Gallery[] {
   return [
     {
       ...base,
+      id: "aniversario-theo",
+      title: "Aniversário de 5 anos",
+      category: "Aniversários",
+      eventDate: daysFromNow(-1),
+      clientName: "Theo",
+      clients: [client("theo", "Família do Theo", "550918", theo.slice(0, 6).map((p) => p.id))],
+      includedPhotos: 40,
+      allowExtras: true,
+      extraPrice: 10,
+      deadline: daysFromNow(20),
+      expiresAt: daysFromNow(90),
+      message: "Que festa linda! As fotos do dia já estão aí em cima; agora é só escolher as suas 40 preferidas 🎈",
+      status: "selecao",
+      createdAt: daysFromNow(-1),
+      sentAt: daysFromNow(-1),
+      coverPhotoId: theo[2].id,
+      folders: theoFolders,
+      photos: theo,
+      sameDayCount: 8,
+      sameDayPhotos: [theo[2], theo[5], theo[9], theo[14], theo[18], theo[21], theo[25], theo[28]],
+      sameDayReleasedAt: daysFromNow(-1),
+      design: design("rose", "lateral"),
+    },
+    {
+      ...base,
       id: "ensaio-ana-e-pedro",
       title: "Ensaio pré-wedding",
+      category: "Ensaios",
       eventDate: daysFromNow(-12),
       clientName: "Ana e Pedro",
       clients: [
         client("ana-pedro", "Ana e Pedro", "482913",
           [ensaio[0].id, ensaio[4].id, ensaio[5].id, ensaio[9].id, ensaio[12].id, ensaio[17].id, ensaio[20].id],
-          { selection: { photoIds: [ensaio[0].id, ensaio[4].id, ensaio[5].id, ensaio[9].id, ensaio[12].id, ensaio[17].id, ensaio[20].id], comments: { [ensaio[5].id]: "Dá pra clarear um pouco o fundo?" } } }),
+          { selection: { photoIds: [ensaio[0].id, ensaio[4].id, ensaio[5].id, ensaio[9].id, ensaio[12].id, ensaio[17].id, ensaio[20].id], comments: { [ensaio[5].id]: "Dá pra clarear um pouco o fundo?" }, bwIds: [ensaio[9].id] } }),
       ],
       includedPhotos: 20,
       allowExtras: true,
@@ -103,6 +136,7 @@ export function seedGalleries(): Gallery[] {
       ...base,
       id: "formatura-3-ano",
       title: "Formatura 3º ano",
+      category: "Formaturas",
       eventDate: daysFromNow(-8),
       clientName: "Formatura 3º ano B",
       clients: [
@@ -128,6 +162,7 @@ export function seedGalleries(): Gallery[] {
       ...base,
       id: "casamento-julia-e-rafa",
       title: "Casamento",
+      category: "Casamentos",
       eventDate: daysFromNow(-30),
       clientName: "Júlia e Rafael",
       clients: [
@@ -136,6 +171,7 @@ export function seedGalleries(): Gallery[] {
           selection: {
             photoIds: casamento.filter((_, i) => i % 3 === 0 || i === 2).map((p) => p.id),
             comments: { [casamento[0].id]: "Essa é pra capa do álbum!", [casamento[9].id]: "Tirar o copo da mesa, se possível" },
+            bwIds: [casamento[3].id, casamento[12].id],
           },
         }),
       ],
@@ -158,6 +194,7 @@ export function seedGalleries(): Gallery[] {
       ...base,
       id: "familia-souza",
       title: "Ensaio de família",
+      category: "Ensaios",
       eventDate: daysFromNow(-45),
       clientName: "Família Souza",
       clients: [client("souza", "Família Souza", "115820", familia.slice(0, 15).map((p) => p.id), { finalizedAt: daysFromNow(-35) })],
@@ -180,6 +217,7 @@ export function seedGalleries(): Gallery[] {
       ...base,
       id: "gestante-mariana",
       title: "Ensaio gestante",
+      category: "Ensaios",
       eventDate: daysFromNow(-2),
       clientName: "Mariana Lima",
       clients: [client("mariana", "Mariana Lima", "904417")],
@@ -199,6 +237,7 @@ export function seedGalleries(): Gallery[] {
       ...base,
       id: "aniversario-helena",
       title: "Aniversário de 1 ano",
+      category: "Aniversários",
       eventDate: daysFromNow(-200),
       clientName: "Helena",
       clients: [client("helena", "Família da Helena", "661204", aniversario.slice(0, 10).map((p) => p.id), { finalizedAt: daysFromNow(-190) })],

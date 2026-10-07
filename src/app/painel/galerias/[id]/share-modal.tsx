@@ -7,8 +7,17 @@ import { useStore } from "@/lib/store";
 import type { Gallery, GalleryClient } from "@/lib/types";
 import { cn, formatDate, galleryLink } from "@/lib/utils";
 
-function shareText(g: Gallery, c: GalleryClient, studioName: string) {
+function shareText(g: Gallery, c: GalleryClient, studioName: string, sameDay: boolean) {
   const link = galleryLink(g);
+  if (sameDay) {
+    const next = g.status === "rascunho" ? "As demais fotos chegam em breve" : `No mesmo link você escolhe as ${g.includedPhotos} fotos do pacote`;
+    return `Oi, ${c.name}! As primeiras fotos já estão prontas 🎈
+
+Acesse ${link} com o código ${c.accessCode} para ver e baixar.
+${next}.
+
+Com carinho, ${studioName}`;
+  }
   if (g.status === "entregue") {
     return `Oi, ${c.name}! Suas fotos estão prontas 💛\n\nÉ só acessar ${link} com o código ${c.accessCode} para baixar.\n\nCom carinho, ${studioName}`;
   }
@@ -20,9 +29,12 @@ export function ShareModal({
   clientId,
   open,
   onClose,
+  sameDay = false,
 }: {
   gallery: Gallery;
   clientId?: string;
+  /** Compartilhar as fotos do dia (não envia a galeria para seleção). */
+  sameDay?: boolean;
   open: boolean;
   onClose: () => void;
 }) {
@@ -32,12 +44,12 @@ export function ShareModal({
   const client = gallery.clients.find((c) => c.id === (chosen ?? clientId)) ?? gallery.clients[0];
   if (!client) return null;
 
-  const text = shareText(gallery, client, studio.name);
+  const text = shareText(gallery, client, studio.name, sameDay);
   const link = galleryLink(gallery);
 
   // Enquanto o envio de e-mail não existe, compartilhar = marcar como enviada.
   function markSent() {
-    sendToClient(gallery.id);
+    if (!sameDay) sendToClient(gallery.id);
   }
 
   async function copy(value: string, key: string) {
@@ -54,7 +66,7 @@ export function ShareModal({
         setChosen(undefined);
         onClose();
       }}
-      title={gallery.status === "entregue" ? "Enviar fotos finais" : "Enviar para seleção"}
+      title={sameDay ? "Enviar fotos do dia" : gallery.status === "entregue" ? "Enviar fotos finais" : "Enviar para seleção"}
     >
       <div className="space-y-5">
         {gallery.clients.length > 1 && (

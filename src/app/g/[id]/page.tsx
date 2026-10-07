@@ -29,10 +29,14 @@ export default function ClientGalleryPage() {
   const gallery = getGallery(id);
   // O servidor sempre mostra o carregamento (store ainda não pronta), então ler aqui não causa divergência.
   const [clientId, setClientId] = useState(() => savedClient(id));
+  const [viewSameDay, setViewSameDay] = useState(false);
 
   if (!ready) return <Spinner />;
 
-  if (!gallery || gallery.status === "rascunho" || gallery.archived || isExpired(gallery)) {
+  // Fotos do dia liberadas abrem a galeria mesmo antes de ela ir para seleção.
+  const sameDay = !!gallery?.sameDayReleasedAt && gallery.sameDayPhotos.length > 0;
+
+  if (!gallery || (gallery.status === "rascunho" && !sameDay) || gallery.archived || isExpired(gallery)) {
     const expired = gallery && (gallery.archived || isExpired(gallery));
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
@@ -60,10 +64,16 @@ export default function ClientGalleryPage() {
     />
   ) : gallery.status === "entregue" ? (
     <ClientDelivery gallery={gallery} />
+  ) : gallery.status === "rascunho" || viewSameDay ? (
+    <ClientDelivery
+      gallery={gallery}
+      sameDay
+      onBack={gallery.status === "rascunho" ? undefined : () => setViewSameDay(false)}
+    />
   ) : gallery.status === "selecao" && !client.finalizedAt ? (
-    <ClientSelection gallery={gallery} client={client} />
+    <ClientSelection gallery={gallery} client={client} onSameDay={sameDay ? () => setViewSameDay(true) : undefined} />
   ) : (
-    <ClientDone gallery={gallery} client={client} />
+    <ClientDone gallery={gallery} client={client} onSameDay={sameDay ? () => setViewSameDay(true) : undefined} />
   );
 
   return (

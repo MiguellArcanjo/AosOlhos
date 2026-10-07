@@ -1,12 +1,13 @@
 "use client";
 
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Gift } from "lucide-react";
+import { Button } from "@/components/ui";
 import { ProtectedImage } from "@/components/protected-image";
 import { StudioLogo } from "@/components/studio-logo";
 import type { Gallery, GalleryClient } from "@/lib/types";
 import { extrasOf, formatDate, formatMoney } from "@/lib/utils";
 
-export function ClientDone({ gallery, client }: { gallery: Gallery; client: GalleryClient }) {
+export function ClientDone({ gallery, client, onSameDay }: { gallery: Gallery; client: GalleryClient; onSameDay?: () => void }) {
   const selected = gallery.photos.filter((p) => client.selection.photoIds.includes(p.id));
   const extras = extrasOf(gallery, client);
 
@@ -24,6 +25,11 @@ export function ClientDone({ gallery, client }: { gallery: Gallery; client: Gall
           <p className="rounded-xl bg-accent-soft px-4 py-3 text-sm">
             {extras} foto{extras > 1 ? "s" : ""} extra{extras > 1 ? "s" : ""} · {formatMoney(extras * gallery.extraPrice)}
           </p>
+        )}
+        {onSameDay && (
+          <Button variant="secondary" onClick={onSameDay}>
+            <Gift size={16} /> Ver as fotos do dia
+          </Button>
         )}
       </div>
 

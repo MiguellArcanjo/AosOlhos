@@ -10,8 +10,8 @@ import { useStore } from "@/lib/store";
 import type { Gallery, GalleryFields } from "@/lib/types";
 
 function formFields(g: GalleryFields): GalleryFields {
-  const { title, eventDate, clientName, includedPhotos, allowExtras, extraPrice, deadline, expiresAt, message, design, watermark, allowShare } = g;
-  return { title, eventDate, clientName, includedPhotos, allowExtras, extraPrice, deadline, expiresAt, message, design, watermark, allowShare };
+  const { title, eventDate, clientName, category, includedPhotos, sameDayCount, allowExtras, extraPrice, deadline, expiresAt, message, design, watermark, allowShare } = g;
+  return { title, eventDate, clientName, category: category.trim(), includedPhotos, sameDayCount, allowExtras, extraPrice, deadline, expiresAt, message, design, watermark, allowShare };
 }
 
 export function SettingsTab({ gallery }: { gallery: Gallery }) {

@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Button, Field, inputClass } from "@/components/ui";
 import { coverLabels, defaultDesign, fontLabels, themes } from "@/lib/design";
+import { useStore } from "@/lib/store";
 import type { ColorTheme, CoverLayout, FontStyle, GalleryFields, NewGallery } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { categoriesOf, cn } from "@/lib/utils";
 
 function inDays(days: number) {
   const d = new Date();
@@ -17,7 +18,9 @@ export const emptyGallery = (): NewGallery => ({
   eventDate: inDays(0),
   clientName: "",
   clientEmail: "",
+  category: "",
   includedPhotos: 20,
+  sameDayCount: 0,
   allowExtras: true,
   extraPrice: 25,
   deadline: inDays(15),
@@ -37,6 +40,7 @@ export function GalleryForm<T extends GalleryFields & { clientEmail?: string }>(
   submitLabel: string;
   onSubmit: (data: T) => void;
 }) {
+  const { galleries } = useStore();
   const [data, setData] = useState(initial);
   const creating = initial.clientEmail !== undefined;
   const change = <K extends keyof T>(key: K, value: T[K]) => setData((d) => ({ ...d, [key]: value }));
@@ -64,6 +68,20 @@ export function GalleryForm<T extends GalleryFields & { clientEmail?: string }>(
           </Field>
           <Field label="Data do evento">
             <input type="date" className={inputClass} value={data.eventDate} onChange={(e) => change("eventDate", e.target.value)} />
+          </Field>
+          <Field label="Pasta" hint="Separa as galerias no painel. Escolha uma ou digite uma nova.">
+            <input
+              list="pastas-galeria"
+              className={inputClass}
+              placeholder="Ex.: Formaturas"
+              value={data.category}
+              onChange={(e) => change("category", e.target.value)}
+            />
+            <datalist id="pastas-galeria">
+              {categoriesOf(galleries).map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Field>
         </div>
       </section>
@@ -133,6 +151,26 @@ export function GalleryForm<T extends GalleryFields & { clientEmail?: string }>(
                 className={inputClass}
                 value={data.extraPrice}
                 onChange={(e) => change("extraPrice", Number(e.target.value))}
+              />
+            </Field>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="font-serif text-2xl">Entrega no dia</h2>
+        <Toggle checked={data.sameDayCount > 0} onChange={(v) => change("sameDayCount", v ? 10 : 0)}>
+          Entregar algumas fotos no mesmo dia (aniversários, eventos…)
+        </Toggle>
+        {data.sameDayCount > 0 && (
+          <div className="sm:w-1/2">
+            <Field label="Quantas fotos no dia" hint="Você sobe e libera na aba Entrega, antes mesmo da seleção.">
+              <input
+                type="number"
+                min={1}
+                className={inputClass}
+                value={data.sameDayCount}
+                onChange={(e) => change("sameDayCount", Math.max(1, Number(e.target.value)))}
               />
             </Field>
           </div>

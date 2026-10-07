@@ -29,7 +29,7 @@ export default function GaleriaPage() {
   const { ready, getGallery } = useStore();
   const gallery = getGallery(id);
   const [tab, setTab] = useState<TabId | null>(null);
-  const [sharing, setSharing] = useState<{ clientId?: string } | null>(null);
+  const [sharing, setSharing] = useState<{ clientId?: string; sameDay?: boolean } | null>(null);
 
   if (!ready) return <Spinner />;
   if (!gallery) {
@@ -108,13 +108,14 @@ export default function GaleriaPage() {
       {current === "fotos" && <PhotosTab gallery={gallery} />}
       {current === "clientes" && <ClientsTab gallery={gallery} onShare={(clientId) => setSharing({ clientId })} />}
       {current === "selecao" && <SelectionTab gallery={gallery} />}
-      {current === "entrega" && <DeliveryTab gallery={gallery} onShare={() => setSharing({})} />}
+      {current === "entrega" && <DeliveryTab gallery={gallery} onShare={(opts) => setSharing({ ...opts })} />}
       {current === "config" && <SettingsTab gallery={gallery} />}
 
       <ShareModal
-        key={sharing?.clientId ?? "todos"}
+        key={`${sharing?.clientId ?? "todos"}-${!!sharing?.sameDay}`}
         gallery={gallery}
         clientId={sharing?.clientId}
+        sameDay={sharing?.sameDay}
         open={sharing !== null}
         onClose={() => setSharing(null)}
       />

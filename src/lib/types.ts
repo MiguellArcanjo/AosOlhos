@@ -19,6 +19,8 @@ export interface Folder {
 export interface Selection {
   photoIds: string[];
   comments: Record<string, string>;
+  /** Fotos escolhidas que o cliente pediu em preto e branco. */
+  bwIds: string[];
 }
 
 /** Pessoa com acesso à galeria. Cada uma tem o próprio código e a própria seleção. */
@@ -47,6 +49,8 @@ export interface Gallery {
   eventDate: string;
   /** Nome exibido na capa (ex.: "Ana e Pedro", "Formatura 3º ano"). */
   clientName: string;
+  /** Pasta do painel (ex.: "Formaturas", "Aniversários"); vazio = sem pasta. */
+  category: string;
   clients: GalleryClient[];
   /** Quantidade de fotos inclusas no pacote (por cliente). */
   includedPhotos: number;
@@ -69,6 +73,10 @@ export interface Gallery {
   /** Fotos que a fotógrafa marcou como favoritas para sugerir ao cliente. */
   favoriteIds: string[];
   deliveryPhotos: Photo[];
+  /** Quantas fotos a fotógrafa entrega no mesmo dia do evento (0 = não usa). */
+  sameDayCount: number;
+  sameDayPhotos: Photo[];
+  sameDayReleasedAt?: string;
   design: GalleryDesign;
   /** Marca d'água gravada nas fotos de seleção. */
   watermark: boolean;
@@ -98,7 +106,9 @@ export type GalleryFields = Pick<
   | "title"
   | "eventDate"
   | "clientName"
+  | "category"
   | "includedPhotos"
+  | "sameDayCount"
   | "allowExtras"
   | "extraPrice"
   | "deadline"

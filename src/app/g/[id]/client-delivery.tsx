@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Play, Share2 } from "lucide-react";
+import { ArrowLeft, Download, Play, Share2 } from "lucide-react";
 import { Button, buttonClass } from "@/components/ui";
 import { Lightbox } from "@/components/lightbox";
 import { JustifiedGrid } from "@/components/justified-grid";
@@ -25,13 +25,26 @@ function saveBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-export function ClientDelivery({ gallery }: { gallery: Gallery }) {
+export function ClientDelivery({
+  gallery,
+  sameDay = false,
+  onBack,
+}: {
+  gallery: Gallery;
+  /** Mostra as fotos entregues no dia em vez das fotos finais. */
+  sameDay?: boolean;
+  onBack?: () => void;
+}) {
   const { studio } = useStore();
   const [open, setOpen] = useState<number | null>(null);
   const [slideshow, setSlideshow] = useState(false);
+  const [grayscale, setGrayscale] = useState(false);
   const [zipping, setZipping] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const photos = gallery.deliveryPhotos;
+  const photos = sameDay ? gallery.sameDayPhotos : gallery.deliveryPhotos;
+  const subtitle = sameDay
+    ? `Fotos do dia · ${gallery.status === "rascunho" ? "as demais chegam em breve" : "a seleção completa continua no mesmo link"}`
+    : `${gallery.title} · ${formatDate(gallery.eventDate)}`;
   const hero = photos[0] ?? coverOf(gallery);
   const minimal = gallery.design.cover === "minimal";
 
@@ -57,7 +70,10 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
         zip.file(p.name, await photoBlob(p));
       }
       setZipping("Compactando…");
-      saveBlob(await zip.generateAsync({ type: "blob" }), `${gallery.clientName} - ${studio.name}.zip`);
+      saveBlob(
+        await zip.generateAsync({ type: "blob" }),
+        `${gallery.clientName}${sameDay ? " - fotos do dia" : ""} - ${studio.name}.zip`,
+      );
     } catch {
       flash("Não foi possível baixar todas as fotos. Tente novamente.");
     } finally {
@@ -94,8 +110,14 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
     flash("Link copiado!");
   }
 
+  const outline = minimal ? "border border-line" : "border border-white/40 text-white hover:bg-white/10";
   const actions = (
     <div className="mt-6 flex flex-wrap gap-2">
+      {onBack && (
+        <button type="button" onClick={onBack} className={buttonClass("ghost", outline)}>
+          <ArrowLeft size={16} /> Voltar para a seleção
+        </button>
+      )}
       <Button onClick={downloadAll} disabled={!!zipping || photos.length === 0} variant="secondary" className="border-transparent">
         <Download size={16} /> {zipping ?? `Baixar todas (${photos.length})`}
       </Button>
@@ -103,7 +125,7 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
         type="button"
         onClick={() => setSlideshow(true)}
         disabled={photos.length === 0}
-        className={buttonClass("ghost", minimal ? "border border-line" : "border border-white/40 text-white hover:bg-white/10")}
+        className={buttonClass("ghost", outline)}
       >
         <Play size={16} /> Slideshow
       </button>
@@ -111,7 +133,7 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
         <button
           type="button"
           onClick={shareGallery}
-          className={buttonClass("ghost", minimal ? "border border-line" : "border border-white/40 text-white hover:bg-white/10")}
+          className={buttonClass("ghost", outline)}
         >
           <Share2 size={16} /> Compartilhar
         </button>
@@ -125,9 +147,7 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
         <section className="mx-auto w-full max-w-6xl px-4 pb-6 pt-16 text-center sm:px-6">
           <StudioLogo className="text-sm text-muted" imageClassName="mx-auto" />
           <h1 className="mt-4 font-serif text-5xl leading-tight">{gallery.clientName}</h1>
-          <p className="mt-1 text-muted">
-            {gallery.title} · {formatDate(gallery.eventDate)}
-          </p>
+          <p className="mt-1 text-muted">{subtitle}</p>
           <div className="flex justify-center">{actions}</div>
         </section>
       ) : (
@@ -140,9 +160,7 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
           <div className="relative mx-auto w-full max-w-6xl px-4 pb-10 text-white sm:px-6">
             <StudioLogo className="text-sm text-white/70" imageClassName="brightness-0 invert" />
             <h1 className="mt-2 font-serif text-5xl leading-tight">{gallery.clientName}</h1>
-            <p className="mt-1 text-white/80">
-              {gallery.title} · {formatDate(gallery.eventDate)}
-            </p>
+            <p className="mt-1 text-white/80">{subtitle}</p>
             {actions}
           </div>
         </section>
@@ -177,6 +195,8 @@ export function ClientDelivery({ gallery }: { gallery: Gallery }) {
           index={open}
           onIndex={setOpen}
           onClose={() => setOpen(null)}
+          grayscale={grayscale}
+          onGrayscale={setGrayscale}
           actions={(p) => (
             <>
               {gallery.allowShare && (

@@ -2,39 +2,107 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Archive, CalendarDays, Images, Search, Users } from "lucide-react";
+import { Archive, CalendarDays, Folder, Images, Pencil, Search, Users } from "lucide-react";
+import { useDialog } from "@/components/dialog";
 import { Spinner, StatusBadge, inputClass } from "@/components/ui";
 import { useStore } from "@/lib/store";
 import type { GalleryStatus } from "@/lib/types";
-import { cn, coverOf, daysUntil, expiryLabel, finalizedCount, formatDate, statusInfo } from "@/lib/utils";
+import { categoriesOf, cn, coverOf, daysUntil, expiryLabel, finalizedCount, formatDate, statusInfo } from "@/lib/utils";
 
 type Filter = GalleryStatus | "todas" | "arquivadas";
 
 const filters: Filter[] = ["todas", "rascunho", "selecao", "finalizada", "entregue", "arquivadas"];
 
+/** null = todas as pastas; "" = sem pasta; qualquer outro valor = nome da pasta. */
+type CategoryFilter = string | null;
+
+const categoryKey = "aos-olhos:pasta-painel";
+
+/** Lembra a última pasta aberta neste navegador. */
+function savedCategory(): CategoryFilter {
+  try {
+    return typeof window === "undefined" ? null : localStorage.getItem(categoryKey);
+  } catch {
+    return null;
+  }
+}
+
 export default function PainelPage() {
-  const { ready, galleries } = useStore();
+  const { ready, galleries, renameCategory } = useStore();
   const [filter, setFilter] = useState<Filter>("todas");
+  const [category, setCategoryState] = useState<CategoryFilter>(savedCategory);
   const [query, setQuery] = useState("");
+  const [dialog, dialogElement] = useDialog();
 
   if (!ready) return <Spinner />;
 
+  function setCategory(value: CategoryFilter) {
+    setCategoryState(value);
+    try {
+      if (value === null) localStorage.removeItem(categoryKey);
+      else localStorage.setItem(categoryKey, value);
+    } catch {}
+  }
+
+  const categories = categoriesOf(galleries, false);
+  const uncategorized = galleries.filter((g) => !g.category).length;
+  // Pasta salva que deixou de existir (renomeada/esvaziada) volta para "Todas".
+  const currentCategory = category !== null && (category === "" ? uncategorized > 0 : categories.includes(category)) ? category : null;
+  const inCategory = currentCategory === null ? galleries : galleries.filter((g) => g.category === currentCategory);
+
   // Arquivadas só aparecem no filtro próprio.
-  const active = galleries.filter((g) => !g.archived);
+  const active = inCategory.filter((g) => !g.archived);
   const count = (s: GalleryStatus) => active.filter((g) => g.status === s).length;
   const q = query.trim().toLowerCase();
-  const visible = galleries.filter(
+  const visible = inCategory.filter(
     (g) =>
       (filter === "arquivadas" ? g.archived : !g.archived && (filter === "todas" || g.status === filter)) &&
-      (!q || `${g.title} ${g.clientName}`.toLowerCase().includes(q)),
+      (!q || `${g.title} ${g.clientName} ${g.category}`.toLowerCase().includes(q)),
   );
+
+  async function rename(from: string) {
+    const to = await dialog.prompt({ title: "Renomear pasta", label: "Nome", initial: from, confirmLabel: "Renomear" });
+    if (!to?.trim() || to.trim() === from) return;
+    renameCategory(from, to);
+    setCategory(to.trim());
+  }
 
   return (
     <div className="space-y-8">
+      {dialogElement}
       <div>
         <h1 className="font-serif text-4xl">Olá! ✨</h1>
         <p className="mt-1 text-muted">Acompanhe suas galerias e seleções.</p>
       </div>
+
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <CategoryChip active={currentCategory === null} onClick={() => setCategory(null)}>
+            Todas as pastas <span className="text-xs opacity-60">{galleries.length}</span>
+          </CategoryChip>
+          {categories.map((c) => (
+            <CategoryChip key={c} active={currentCategory === c} onClick={() => setCategory(c)}>
+              <Folder size={14} /> {c} <span className="text-xs opacity-60">{galleries.filter((g) => g.category === c).length}</span>
+            </CategoryChip>
+          ))}
+          {uncategorized > 0 && (
+            <CategoryChip active={currentCategory === ""} onClick={() => setCategory("")}>
+              Sem pasta <span className="text-xs opacity-60">{uncategorized}</span>
+            </CategoryChip>
+          )}
+          {currentCategory && (
+            <button
+              type="button"
+              title="Renomear pasta"
+              aria-label="Renomear pasta"
+              onClick={() => rename(currentCategory)}
+              className="rounded-full p-2 text-muted hover:bg-accent-soft hover:text-foreground"
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {(
@@ -69,7 +137,7 @@ export default function PainelPage() {
               onClick={() => setFilter(f)}
               className={cn(
                 "whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition",
-                filter === f ? "bg-foreground text-white" : "text-muted hover:bg-accent-soft",
+                filter === f ? "bg-foreground text-background" : "text-muted hover:bg-accent-soft",
               )}
             >
               {f === "todas" ? "Todas" : f === "arquivadas" ? (
@@ -133,7 +201,10 @@ export default function PainelPage() {
                 <div className="space-y-3 p-4">
                   <div>
                     <p className="font-serif text-xl leading-tight">{g.clientName}</p>
-                    <p className="text-sm text-muted">{g.title}</p>
+                    <p className="text-sm text-muted">
+                      {g.title}
+                      {currentCategory === null && g.category && <span className="opacity-70"> · {g.category}</span>}
+                    </p>
                   </div>
                   {g.status === "selecao" && (
                     <div>
@@ -171,5 +242,20 @@ export default function PainelPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function CategoryChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm transition",
+        active ? "bg-foreground text-background" : "border border-line bg-surface hover:bg-accent-soft",
+      )}
+    >
+      {children}
+    </button>
   );
 }

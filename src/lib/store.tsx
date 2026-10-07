@@ -24,6 +24,8 @@ interface StoreValue {
   createGallery: (data: NewGallery) => Gallery;
   updateGallery: (id: string, patch: Partial<GalleryFields> & { coverPhotoId?: string }) => void;
   deleteGallery: (id: string) => void;
+  /** Renomeia a pasta do painel em todas as galerias que estão nela. */
+  renameCategory: (from: string, to: string) => void;
   setArchived: (id: string, archived: boolean) => void;
   // Fotos e pastas
   addPhotos: (id: string, photos: Photo[], folderId?: string) => void;
@@ -41,11 +43,16 @@ interface StoreValue {
   sendToClient: (id: string) => void;
   toggleSelected: (id: string, clientId: string, photoId: string) => void;
   setComment: (id: string, clientId: string, photoId: string, comment: string) => void;
+  toggleBw: (id: string, clientId: string, photoId: string) => void;
   finalizeSelection: (id: string, clientId: string) => void;
   reopenSelection: (id: string, clientId: string) => void;
   addDeliveryPhotos: (id: string, photos: Photo[]) => void;
   removeDeliveryPhoto: (id: string, photoId: string) => void;
   deliver: (id: string) => void;
+  // Entrega no dia
+  addSameDayPhotos: (id: string, photos: Photo[]) => void;
+  removeSameDayPhoto: (id: string, photoId: string) => void;
+  releaseSameDay: (id: string) => void;
   resetDemo: () => void;
 }
 
@@ -72,7 +79,18 @@ const now = () => new Date().toISOString();
 const shortId = () => Math.random().toString(36).slice(2, 8);
 
 function newClient(name: string, email: string, taken: string[]): GalleryClient {
-  return { id: shortId(), name, email, accessCode: randomCode(taken), selection: { photoIds: [], comments: {} } };
+  return { id: shortId(), name, email, accessCode: randomCode(taken), selection: { photoIds: [], comments: {}, bwIds: [] } };
+}
+
+/** Completa campos novos em galerias salvas por versões anteriores. */
+function normalize(g: Gallery): Gallery {
+  return {
+    ...g,
+    category: g.category ?? "",
+    sameDayCount: g.sameDayCount ?? 0,
+    sameDayPhotos: g.sameDayPhotos ?? [],
+    clients: g.clients.map((c) => ({ ...c, selection: { ...c.selection, bwIds: c.selection.bwIds ?? [] } })),
+  };
 }
 
 /** A galeria fica "finalizada" quando todos os clientes finalizaram a seleção. */
@@ -91,7 +109,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     get<Saved>(STORAGE_KEY)
       .then((saved) => {
-        setGalleries(saved?.galleries ?? seedGalleries());
+        setGalleries(saved?.galleries.map(normalize) ?? seedGalleries());
         if (saved?.studio) setStudio(saved.studio);
       })
       .catch(() => setGalleries(seedGalleries()))
@@ -126,6 +144,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const base = slugify(`${data.title} ${data.clientName}`) || "galeria";
         const gallery: Gallery = {
           ...data,
+          category: data.category.trim(),
           id: `${base}-${Math.random().toString(36).slice(2, 6)}`,
           clients: [newClient(data.clientName, clientEmail, [])],
           archived: false,
@@ -135,12 +154,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           photos: [],
           favoriteIds: [],
           deliveryPhotos: [],
+          sameDayPhotos: [],
         };
         setGalleries((list) => [gallery, ...list]);
         return gallery;
       },
       updateGallery: (id, patch) => edit(id, (g) => ({ ...g, ...patch })),
       deleteGallery: (id) => setGalleries((list) => list.filter((g) => g.id !== id)),
+      renameCategory: (from, to) =>
+        setGalleries((list) => list.map((g) => (g.category === from ? { ...g, category: to.trim() } : g))),
       setArchived: (id, archived) => edit(id, (g) => ({ ...g, archived })),
 
       addPhotos: (id, photos, folderId) =>
@@ -160,7 +182,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             clients: g.clients.map((c) => {
               const comments = { ...c.selection.comments };
               delete comments[photoId];
-              return { ...c, selection: { photoIds: c.selection.photoIds.filter((s) => s !== photoId), comments } };
+              const { photoIds, bwIds } = c.selection;
+              return {
+                ...c,
+                selection: { photoIds: photoIds.filter((s) => s !== photoId), comments, bwIds: bwIds.filter((s) => s !== photoId) },
+              };
             }),
           };
         }),
@@ -208,7 +234,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const has = c.selection.photoIds.includes(photoId);
           if (!has && !g.allowExtras && c.selection.photoIds.length >= g.includedPhotos) return c;
           const photoIds = has ? c.selection.photoIds.filter((p) => p !== photoId) : [...c.selection.photoIds, photoId];
-          return { ...c, selection: { ...c.selection, photoIds } };
+          // Desmarcar a foto também tira o pedido de preto e branco.
+          const bwIds = has ? c.selection.bwIds.filter((p) => p !== photoId) : c.selection.bwIds;
+          return { ...c, selection: { ...c.selection, photoIds, bwIds } };
         }),
       setComment: (id, clientId, photoId, comment) =>
         editClient(id, clientId, (c) => {
@@ -217,12 +245,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           else delete comments[photoId];
           return { ...c, selection: { ...c.selection, comments } };
         }),
+      toggleBw: (id, clientId, photoId) =>
+        editClient(id, clientId, (c, g) => {
+          if (g.status !== "selecao" || c.finalizedAt || !c.selection.photoIds.includes(photoId)) return c;
+          const { bwIds } = c.selection;
+          return {
+            ...c,
+            selection: { ...c.selection, bwIds: bwIds.includes(photoId) ? bwIds.filter((p) => p !== photoId) : [...bwIds, photoId] },
+          };
+        }),
       finalizeSelection: (id, clientId) => editClient(id, clientId, (c) => ({ ...c, finalizedAt: now() })),
       reopenSelection: (id, clientId) => editClient(id, clientId, (c) => ({ ...c, finalizedAt: undefined })),
       addDeliveryPhotos: (id, photos) => edit(id, (g) => ({ ...g, deliveryPhotos: [...g.deliveryPhotos, ...photos] })),
       removeDeliveryPhoto: (id, photoId) =>
         edit(id, (g) => ({ ...g, deliveryPhotos: g.deliveryPhotos.filter((p) => p.id !== photoId) })),
       deliver: (id) => edit(id, (g) => ({ ...g, status: "entregue", deliveredAt: now() })),
+      addSameDayPhotos: (id, photos) =>
+        edit(id, (g) => ({
+          ...g,
+          // Respeita a quantidade combinada para o dia.
+          sameDayPhotos: [...g.sameDayPhotos, ...photos].slice(0, Math.max(g.sameDayCount, g.sameDayPhotos.length)),
+        })),
+      removeSameDayPhoto: (id, photoId) =>
+        edit(id, (g) => ({ ...g, sameDayPhotos: g.sameDayPhotos.filter((p) => p.id !== photoId) })),
+      releaseSameDay: (id) => edit(id, (g) => ({ ...g, sameDayReleasedAt: g.sameDayReleasedAt ?? now() })),
       resetDemo: () => {
         setGalleries(seedGalleries());
         setStudio(defaultStudio());

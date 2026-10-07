@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Contrast, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
 
@@ -15,6 +15,8 @@ export function Lightbox({
   actions,
   footer,
   onKey,
+  grayscale = false,
+  onGrayscale,
 }: {
   photos: Photo[];
   index: number;
@@ -28,6 +30,10 @@ export function Lightbox({
   footer?: (photo: Photo) => React.ReactNode;
   /** Atalhos extras (ex.: espaço para selecionar). Retorne true se tratou a tecla. */
   onKey?: (e: KeyboardEvent, photo: Photo) => boolean;
+  /** Mostra a foto em preto e branco (só visualização). */
+  grayscale?: boolean;
+  /** Quando informado, aparece o botão "P&B" para ligar/desligar. */
+  onGrayscale?: (value: boolean) => void;
 }) {
   const photo = photos[index];
   const touchX = useRef<number | null>(null);
@@ -62,6 +68,20 @@ export function Lightbox({
           {index + 1} / {photos.length} · {photo.name}
         </span>
         <div className="flex items-center gap-2">
+          {onGrayscale && (
+            <button
+              type="button"
+              onClick={() => onGrayscale(!grayscale)}
+              aria-pressed={grayscale}
+              title="Ver em preto e branco"
+              className={cn(
+                "flex items-center gap-2 rounded-full px-3 py-2 text-sm transition",
+                grayscale ? "bg-white text-neutral-950" : "hover:bg-white/10",
+              )}
+            >
+              <Contrast size={16} /> P&amp;B
+            </button>
+          )}
           {actions?.(photo)}
           <button type="button" onClick={onClose} className="rounded-full p-2 hover:bg-white/10" aria-label="Fechar">
             <X size={22} />
@@ -79,7 +99,7 @@ export function Lightbox({
           touchX.current = null;
         }}
       >
-        <div className="relative max-h-full">
+        <div className={cn("relative max-h-full transition-[filter] duration-300", grayscale && "grayscale")}>
           {renderImage ? (
             renderImage(photo, "max-h-[calc(100dvh-10rem)] max-w-full object-contain")
           ) : (

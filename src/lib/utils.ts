@@ -63,6 +63,15 @@ export function finalizedCount(g: Gallery) {
   return g.clients.filter((c) => c.finalizedAt).length;
 }
 
+/** Sugestões de pasta para galerias novas. */
+const defaultCategories = ["Aniversários", "Casamentos", "Ensaios", "Formaturas"];
+
+/** Pastas em uso nas galerias + sugestões padrão, em ordem alfabética. */
+export function categoriesOf(galleries: Gallery[], withDefaults = true) {
+  const used = galleries.map((g) => g.category).filter(Boolean);
+  return [...new Set([...(withDefaults ? defaultCategories : []), ...used])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
 export function photosInFolder(photos: Photo[], folderId: string | null) {
   if (folderId === null) return photos;
   if (folderId === "") return photos.filter((p) => !p.folderId);
